@@ -1,0 +1,21 @@
+# Local planning, research, pilot material
+/.private/
+/artifacts/
+/.artifacts/
+
+# Dependencies and generated output
+node_modules/
+/dist/
+/coverage/
+*.tsbuildinfo
+*.tgz
+*.log
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+.npmrc
+*.pem
+*.key
+.DS_Store

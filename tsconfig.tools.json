@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "types": [
+      "node"
+    ],
+    "skipLibCheck": false
+  },
+  "include": [
+    "scripts/**/*.mjs",
+    "examples/vite.config.mjs"
+  ]
+}

@@ -1,0 +1,31 @@
+name: Checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - node: 22
+            react: 18.3.1
+          - node: 24
+            react: 19.0.0
+          - node: 24
+            react: 19.3.0
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - name: Select React version
+        if: matrix.react != '18.3.1'
+        run: npm install --no-save --package-lock=false react@${{ matrix.react }} react-dom@${{ matrix.react }}
+      - run: npm run check

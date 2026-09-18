@@ -1,0 +1,89 @@
+{
+  "name": "recstead",
+  "version": "0.1.0-alpha.0",
+  "description": "Browser microphone recording with explicit session and resource lifetimes.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Trigger",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/trigger-xyz/recstead.git"
+  },
+  "bugs": {
+    "url": "https://github.com/trigger-xyz/recstead/issues"
+  },
+  "homepage": "https://github.com/trigger-xyz/recstead#readme",
+  "keywords": [
+    "audio",
+    "microphone",
+    "mediarecorder",
+    "recording",
+    "typescript",
+    "react"
+  ],
+  "files": [
+    "dist",
+    "docs",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md"
+  ],
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./core": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": ">=22.12"
+  },
+  "peerDependencies": {
+    "react": "^18.3.1 || ^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "tag": "next",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.tools.json",
+    "build": "node scripts/build.mjs",
+    "test": "npm run build && node --test tests/*.test.mjs",
+    "check:package": "node scripts/check-package.mjs",
+    "check:privacy": "node scripts/check-privacy.mjs",
+    "check": "npm run typecheck && npm test && npm run check:privacy && npm run check:package",
+    "demo": "node scripts/demo.mjs",
+    "pack:alpha": "npm run release:prepare",
+    "prepublishOnly": "npm run check",
+    "build:examples": "npm run build && vite build --config examples/vite.config.mjs",
+    "prepack": "npm run build",
+    "release:prepare": "npm run check && node scripts/prepare-release.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "22.18.6",
+    "@types/react": "18.3.31",
+    "@types/react-dom": "18.3.7",
+    "esbuild": "0.28.2",
+    "jsdom": "26.1.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "typescript": "6.0.3",
+    "vite": "8.3.0"
+  }
+}
