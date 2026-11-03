@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "noEmit": true,
+    "allowJs": true,
+    "checkJs": true,
+    "skipLibCheck": false,
+    "paths": {
+      "recstead": ["./src/index.ts"],
+      "recstead/react": ["./src/react.ts"]
+    }
+  },
+  "include": ["examples/**/*.ts", "examples/**/*.tsx", "examples/**/*.mjs", "tests/browser/**/*.ts", "tests/examples.test.mjs", "tests/tooling.test.mjs", "playwright.config.ts"]
+}

@@ -29,3 +29,9 @@ jobs:
         if: matrix.react != '18.3.1'
         run: npm install --no-save --package-lock=false react@${{ matrix.react }} react-dom@${{ matrix.react }}
       - run: npm run check
+      - name: Install Chromium
+        if: matrix.node == 22
+        run: npx playwright install --with-deps chromium
+      - name: Exercise installed-package workflows
+        if: matrix.node == 22
+        run: npm run test:browser

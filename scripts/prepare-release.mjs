@@ -16,13 +16,20 @@ assert.equal(manifest.publishConfig?.registry, 'https://registry.npmjs.org/');
 const artifact = `./.artifacts/${checked.filename}`;
 const hash = createHash('sha256').update(await readFile(artifact)).digest('hex');
 assert.equal(hash, checked.tarballSha256, 'The tarball changed after its consumer checks.');
+/** @type {{ version: string; tarballSha256: string | null; exitCode: number; publicImportsWithoutAliases: boolean }} */
+const workflows = JSON.parse(await readFile('.artifacts/workflow-candidate.json', 'utf8'));
+assert.equal(workflows.version, manifest.version, 'Browser workflows checked a different package version.');
+assert.equal(workflows.tarballSha256, hash, 'Browser workflows checked a different tarball.');
+assert.equal(workflows.exitCode, 0, 'Browser workflow checks did not pass.');
+assert.equal(workflows.publicImportsWithoutAliases, true, 'Browser workflows must use installed public exports.');
 const publishCommand = `npm publish ${artifact} --access public --tag next --registry=https://registry.npmjs.org/`;
 const report = {
   preparedAt: new Date().toISOString(), name: manifest.name, version: manifest.version,
   artifact, sha256: hash, integrity: checked.integrity, files: checked.files,
   tag: 'next', registry: manifest.publishConfig.registry, published: false,
+  browserWorkflows: '.artifacts/workflow-candidate.json',
   publishCommand,
-  remainingChecks: ['Review the recorded browser evidence and documented alpha limitations.', 'Commit and push reviewed public source, then check hosted CI.', 'Confirm the intended npm account, verified email, publishing 2FA and current name availability.', 'Reconfirm artifact hash and explicit publication authorization.'],
+  remainingChecks: ['Review the recorded browser evidence and documented alpha limitations.', 'Commit and push reviewed public source, then check hosted CI.', 'Confirm the intended npm account, publishing authentication and version availability.', 'Reconfirm artifact hash and explicit publication authorization.'],
 };
 await writeFile('.artifacts/release-candidate.json', JSON.stringify(report, null, 2) + '\n');
 console.log(`Prepared ${manifest.name}@${manifest.version}\nSHA-256 ${hash}\nPublication has not run. After the remaining release checks:\n${publishCommand}`);

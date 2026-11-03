@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.0-alpha.1
+
+- Replace the recorder control demos with a React voice-message app and a TypeScript voice-note workspace.
+- Add a bounded local HTTP message endpoint with idempotent retry, explicit uncertain acceptance, and failure scenarios.
+- Support seeking in sent-message playback with HTTP byte ranges, and keep long note titles within the workspace header.
+- Save complete notes in IndexedDB with atomic capacity checks, retryable failures, downloads and deletion.
+- Reconnect after unexpected IndexedDB closure, and let stalled conversation clears time out and retry without losing local recordings.
+- Clear stale conversation errors when reloading, while reporting any new load failure.
+- Add installed-package Chromium workflow tests, HTTP/IndexedDB regressions, strict example/test typing and lint checks.
+- Add a Chromium workflow job to CI and retain testing of the published alpha baseline.
+- Update development tooling and pin patched minimatch for the lint dependency tree. The recorder API is unchanged.
+
 ## 0.1.0-alpha.0
 
 This is an experimental API and does not carry a qualified browser-support guarantee.

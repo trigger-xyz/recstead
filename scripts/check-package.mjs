@@ -50,7 +50,7 @@ import { useRecorder, useRecorderSession, useRecordingUrl } from 'recstead/react
 const options: RecorderOptions = { source: { kind: 'microphone' }, maxBytes: 1024 };
 const recorder = createRecorder(options);
 void [getCapabilities, explicit, useRecorder, useRecorderSession, useRecordingUrl, recorder];\n`);
-  await writeFile(join(temp, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2022', module: 'NodeNext', moduleResolution: 'NodeNext', jsx: 'react-jsx', lib: ['ES2022', 'DOM', 'DOM.Iterable'], strict: true, noEmit: true, skipLibCheck: false }, include: ['consumer.ts','examples/**/*.ts','examples/**/*.tsx'] }));
+  await writeFile(join(temp, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2022', module: 'NodeNext', moduleResolution: 'NodeNext', jsx: 'react-jsx', lib: ['ES2022', 'DOM', 'DOM.Iterable'], strict: true, noEmit: true, allowJs: true, skipLibCheck: false }, include: ['consumer.ts','examples/**/*.ts','examples/**/*.tsx'] }));
   execFileSync(process.execPath, [join(root, 'node_modules/typescript/bin/tsc'), '-p', join(temp, 'tsconfig.json')], { stdio: 'inherit' });
   await build({ configFile: false, root: join(temp, 'examples'), logLevel: 'warn', build: { outDir: join(temp, 'built-examples'), emptyOutDir: true, rolldownOptions: { input: { vanilla: join(temp,'examples/vanilla/index.html'), react: join(temp,'examples/react/index.html'), synthetic: join(temp,'examples/synthetic/index.html') } } } });
   // Every relative Markdown link in the delivered documentation must resolve.

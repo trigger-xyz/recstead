@@ -1,8 +1,10 @@
 import { defineConfig } from 'vite';
 import { fileURLToPath } from 'node:url';
+import { messageApiPlugin } from './server/messages.mjs';
 const root = fileURLToPath(new URL('.', import.meta.url));
 export default defineConfig({
   root,
+  plugins: [messageApiPlugin()],
   resolve: { alias: [
     { find: 'recstead/react', replacement: fileURLToPath(new URL('../dist/react.js', import.meta.url)) },
     { find: 'recstead/core', replacement: fileURLToPath(new URL('../dist/index.js', import.meta.url)) },

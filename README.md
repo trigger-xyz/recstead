@@ -2,23 +2,23 @@
 
 Browser microphone recording with a TypeScript core and React hooks.
 
-`0.1.0-alpha.0` is experimental. The API can change. Chrome/Chromium has a reported physical-microphone cleanup pass. Firefox, Safari and mobile browsers remain unqualified. See [testing and limitations](docs/testing.md) for the evidence and remaining checks.
+This repository contains `0.1.0-alpha.1`. The API is experimental and may change. Chrome/Chromium has a reported physical-microphone cleanup pass. Firefox, Safari and mobile browsers remain unqualified. See [testing and limitations](docs/testing.md) for the evidence and remaining checks.
 
 Recstead owns microphone acquisition, recording state and the tracks it acquires. It returns a complete Blob after the recorder delivers its final data. Your application owns playback, uploads and any recordings it keeps.
 
 ## Install the alpha
 
-The npm alpha uses the `next` tag:
+Install the latest published alpha using the `next` tag:
 
 ```sh
 npm install recstead@next
 ```
 
-Before the first publication, use the locally packed artifact described below.
+To test the current checkout before publication, use the locally packed artifact described below.
 
 ## Build and try locally
 
-Use Node.js 22.12 or newer to work on the repository.
+Use Node.js 24 or newer for repository development, or Node.js 22.13 or newer within the 22.x line.
 
 ```sh
 npm ci
@@ -26,12 +26,12 @@ npm run check
 npm run demo
 ```
 
-The demo command prints the address to open. Choose the [plain TypeScript or React sample app](https://github.com/trigger-xyz/recstead/tree/main/examples), or run the generated-audio encoder check. The recorder apps request microphone access only when you press Record. A secure browser context is required.
+The demo command prints the address to open. Try the [React voice-message composer or TypeScript voice-note workspace](https://github.com/trigger-xyz/recstead/tree/main/examples), or run the generated-audio encoder check. Voice messages upload only after Send to the local example server; saved notes use browser storage. Capture starts only after a recording action. A secure browser context is required.
 
 The check command builds and verifies the package, including a local tarball. To evaluate a local build, install that artifact from your application. For sibling application and Recstead directories:
 
 ```sh
-npm install ../recstead/.artifacts/recstead-0.1.0-alpha.0.tgz
+npm install ../recstead/.artifacts/recstead-0.1.0-alpha.1.tgz
 ```
 
 React applications also need React 18.3.1 or newer within the package's declared peer range. Core-only applications do not need React. This package is ESM only.

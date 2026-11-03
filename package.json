@@ -1,6 +1,6 @@
 {
   "name": "recstead",
-  "version": "0.1.0-alpha.0",
+  "version": "0.1.0-alpha.1",
   "description": "Browser microphone recording with explicit session and resource lifetimes.",
   "type": "module",
   "license": "MIT",
@@ -62,28 +62,41 @@
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit && tsc -p tsconfig.tools.json",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.tools.json && tsc -p tsconfig.examples.json",
     "build": "node scripts/build.mjs",
     "test": "npm run build && node --test tests/*.test.mjs",
     "check:package": "node scripts/check-package.mjs",
     "check:privacy": "node scripts/check-privacy.mjs",
-    "check": "npm run typecheck && npm test && npm run check:privacy && npm run check:package",
+    "check": "npm run lint && npm run typecheck && npm test && npm run check:privacy && npm run check:package",
     "demo": "node scripts/demo.mjs",
     "pack:alpha": "npm run release:prepare",
-    "prepublishOnly": "npm run check",
+    "prepublishOnly": "npm run check:all",
     "build:examples": "npm run build && vite build --config examples/vite.config.mjs",
     "prepack": "npm run build",
-    "release:prepare": "npm run check && node scripts/prepare-release.mjs"
+    "release:prepare": "npm run check:all && node scripts/prepare-release.mjs",
+    "lint": "eslint . --max-warnings 0",
+    "test:browser": "node scripts/test-browser.mjs",
+    "test:browser:published": "node scripts/test-browser.mjs --published",
+    "check:all": "npm run check && npm run test:browser"
   },
   "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "1.64.1",
     "@types/node": "22.18.6",
     "@types/react": "18.3.31",
     "@types/react-dom": "18.3.7",
     "esbuild": "0.28.2",
+    "eslint": "10.14.0",
+    "fake-indexeddb": "6.2.7",
+    "globals": "17.14.0",
     "jsdom": "26.1.0",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "typescript": "6.0.3",
-    "vite": "8.3.0"
+    "typescript-eslint": "8.72.1",
+    "vite": "8.3.5"
+  },
+  "overrides": {
+    "minimatch": "11.0.1"
   }
 }

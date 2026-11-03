@@ -4,7 +4,7 @@ Recstead is an experimental browser microphone recorder. Contributions should pr
 
 ## Work locally
 
-Use Node.js 22.12 or newer and the committed lockfile:
+Use Node.js 24 or newer, or Node.js 22.13 or newer within the 22.x line, and the committed lockfile:
 
 ```sh
 npm ci
@@ -12,7 +12,20 @@ npm run check
 npm run demo
 ```
 
-The demo command prints the address to open. Test recording with non-sensitive media.
+The demo command prints the address to open. Test recording with non-sensitive media. The message example sends media to its local endpoint; the note example saves it in browser storage only after Save.
+
+For changes to examples, recording lifetimes, uploads or storage, also run:
+
+```sh
+npx playwright install chromium
+npm run test:browser
+```
+
+This installs the candidate tarball in a temporary consumer and exercises its actual browser workflows. `npm run test:browser:published` checks the same examples against the pinned `0.1.0-alpha.0` baseline. Browser reports and synthetic-media traces stay under ignored `.artifacts/`. Do not collect traces from personal recordings.
+
+`npm run check:all` combines the repository and candidate browser checks. Release preparation and the publish lifecycle require this full check, so install Chromium before running either.
+
+`npm run lint` includes promise handling checks for the examples and browser tests. `npm run typecheck` checks library, tooling, examples and new workflow tests. The development-only minimatch override pins 11.0.1 for GHSA-g3hv-75wg-m249; remove it when the lint dependencies adopt a patched compatible range. Its changed API has been checked against the current lint/typecheck consumers.
 
 ## Make a change
 

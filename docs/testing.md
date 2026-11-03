@@ -2,7 +2,15 @@
 
 `0.1.0-alpha.0` is experimental. The results below describe specific checks; they do not establish broad browser or device support.
 
-## Observed alpha results
+## Development workflow checks
+
+The `0.1.0-alpha.1` candidate adds real HTTP and IndexedDB workflow tests for the richer example apps. Run `npm run check:all` after installing Chromium with `npx playwright install chromium`. The browser runner installs the package into a temporary consumer with no aliases, exercises both apps and writes reports to ignored `.artifacts/`. `npm run test:browser:published` exercises the pinned published `0.1.0-alpha.0` package as well.
+
+Chromium's generated microphone input feeds the native encoder. Tests decode the output and verify accepted message bytes, lost-response retry, note persistence, failed-save recovery, navigation, partial-output handling, tracks and object URLs. Permission delays/denial and recorder errors are injected scenarios. This provides application and native-encoder evidence, not physical microphone or broad browser qualification.
+
+The message example's server validates MIME metadata and payload limits. Only the matching local endpoint and browser playback are exercised; another service's container/codec requirements still need their own validation.
+
+## Recorded first-alpha results
 
 The local Node.js 25.9.0 run passed 58 tests: 44 core tests, 11 React adapter tests and three release-tooling tests. The core tests include 100 successive controller sessions. All 11 React tests also passed with React 19.0.0 and 19.3.0 in isolated consumers; the primary run used React 18.3.1.
 
@@ -12,18 +20,18 @@ A manual tester reported that the sample apps released the browser's capture ind
 
 The packed artifact contained 21 allowed files, including public documentation. An isolated core consumer worked without React or browser globals, TypeScript checked the example sources, and all three sample apps built against the installed tarball. The React entry retained its client directive. Ordinary `npm pack` also built and produced a working package from a clean public copy with no initial build output.
 
-The CI matrix is configured for Node.js 22/24 and React 18.3.1/19.0.0/19.3.0. Hosted CI and Windows execution have not run yet.
+The CI matrix is configured for Node.js 22/24 and React 18.3.1/19.0.0/19.3.0. That matrix passed for the first-alpha release commit. Windows execution remains unverified. The new workflow job requires its own hosted run after these changes are pushed.
 
 ## Repository checks
 
-Use Node.js 22.12 or newer:
+Use Node.js 24 or newer, or Node.js 22.13 or newer within the 22.x line:
 
 ```sh
 npm ci
 npm run check
 ```
 
-The combined check type-checks the library and development scripts, builds the package, runs its tests, checks Git-visible files for private material and verifies the packed artifact. The individual test names describe the event sequences they cover. Inspect the current output before relying on a previous pass.
+The combined check lints and type-checks the library and development scripts, builds the package, runs its tests, checks Git-visible files for private material and verifies the packed artifact. The individual test names describe the event sequences they cover. Inspect the current output before relying on a previous pass.
 
 Deterministic tests exercise delayed acquisition, command cancellation, native event ordering and resource ownership using controllable browser substitutes. React tests exercise hook lifetime, layout-effect actions, Suspense and cleanup. Tooling tests exercise Git-index privacy checks and artifact hash verification. Package checks operate on the artifact a consumer would install, rather than treating source imports as package validation.
 
