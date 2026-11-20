@@ -1,21 +1,27 @@
 name: Checks
 on:
   push:
+    branches: [main]
   pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   package:
-    runs-on: ubuntu-latest
+    name: Package (${{ matrix.os }}, Node ${{ matrix.node }}, React ${{ matrix.react }})
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - node: 22
-            react: 18.3.1
-          - node: 24
-            react: 19.0.0
-          - node: 24
-            react: 19.3.0
+          - { os: ubuntu-latest, node: 22, react: 18.3.1 }
+          - { os: ubuntu-latest, node: 24, react: 19.0.0 }
+          - { os: ubuntu-latest, node: 26, react: 19.3.1 }
+          - { os: macos-latest, node: 24, react: 19.3.1 }
+          - { os: windows-latest, node: 24, react: 19.3.1 }
     steps:
       - uses: actions/checkout@v7
         with:
@@ -25,13 +31,52 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci
+      # The lockfile installs the newest React; each job runs the version it names.
       - name: Select React version
-        if: matrix.react != '18.3.1'
         run: npm install --no-save --package-lock=false react@${{ matrix.react }} react-dom@${{ matrix.react }}
       - run: npm run check
-      - name: Install Chromium
-        if: matrix.node == 22
-        run: npx playwright install --with-deps chromium
-      - name: Exercise installed-package workflows
-        if: matrix.node == 22
-        run: npm run test:browser
+      - name: Explore lifecycle sequences with a seed unique to this run
+        run: node --test tests/model.test.mjs
+        env:
+          RECSTEAD_MODEL_SEED: ${{ github.run_id }}
+          RECSTEAD_MODEL_RUNS: 5000
+  browsers:
+    name: Browsers (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux WebKit has no MediaRecorder; it runs the unsupported-environment workflow there.
+          - { os: ubuntu-latest, engines: 'chromium,firefox,webkit', install: 'chromium firefox webkit', projects: '', consumers: true }
+          # WebKit records natively on macOS only. Firefox is tested on Linux, not on macOS.
+          - { os: macos-latest, engines: 'chromium,webkit', install: 'chromium webkit', projects: '-- --project=chromium --project=webkit', consumers: false }
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Install browser engines
+        run: npx playwright install --with-deps ${{ matrix.install }}
+      - name: Exercise installed-package workflows in each engine
+        run: npm run test:browser ${{ matrix.projects }}
+        env:
+          RECSTEAD_REQUIRE_ENGINES: ${{ matrix.engines }}
+      - name: Check TypeScript and Next.js consumers
+        if: matrix.consumers
+        run: npm run check:consumers
+      - name: Keep the evidence records
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: evidence-${{ matrix.os }}
+          # A failed workflow leaves its trace, screenshot and page snapshot in browser-results.
+          path: |
+            .artifacts/workflow-candidate.json
+            .artifacts/consumer-check.json
+            .artifacts/browser-results/
+          if-no-files-found: warn

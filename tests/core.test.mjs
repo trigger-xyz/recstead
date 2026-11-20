@@ -199,6 +199,7 @@ test('constructor and native start failures release owned tracks and listeners',
       const starting = recorder.start();
       await env.grant();
       await rejects(starting, 'UNSUPPORTED_FORMAT');
+      assert.equal(env.constructions.length, 1, 'a failed recorder is not constructed again');
       assert.equal(env.tracks[0].stops, 1);
       assert.equal(env.tracks[0].listenerCount, 0);
       assert.equal(env.natives[0]?.listenerCount ?? 0, 0);
@@ -325,6 +326,7 @@ test('pause and resume coalesce adjacent requests, preserve opposite ordering an
   const recorder = env.create({ maxActiveMs: 1000 });
   const { native } = await env.begin(recorder);
   env.advance(100);
+  await env.data(native, 'before,');
   const pause = recorder.pause();
   assert.equal(recorder.pause(), pause);
   const resume = recorder.resume();
@@ -334,26 +336,62 @@ test('pause and resume coalesce adjacent requests, preserve opposite ordering an
   assert.deepEqual(native.commands.map(command => command[0]), ['start', 'pause', 'resume']);
   env.advance(5000);
   assert.equal(recorder.getSnapshot().status, 'paused');
+  await env.data(native, 'paused,');
   await env.event(native, 'resume'); await resume;
+  await env.data(native, 'resumed,');
   env.advance(100);
   await env.event(native, 'pause'); await pauseAgain;
   assert.equal(recorder.getSnapshot().timing.activeMs, 200);
   const result = await complete(env, recorder, native);
   assert.equal(result.activeMs, 200);
   assert.equal(result.wallMs, 5200);
+  // Pausing and resuming never drop or reorder audio already delivered.
+  assert.equal(await result.blob.text(), 'before,paused,resumed,final');
 });
 
 test('active duration ends automatically and waits for final output', async t => {
   const env = environment(t);
   const recorder = env.create({ maxActiveMs: 250 });
   const { native } = await env.begin(recorder);
-  env.advance(250);
+  env.advance(249);
+  assert.equal(recorder.getSnapshot().status, 'recording');
+  env.advance(1);
   assert.equal(recorder.getSnapshot().status, 'stopping');
+  // The limit has to stop the native recorder itself; nothing else will.
+  assert.deepEqual(native.commands.map(command => command[0]), ['start', 'stop']);
   await env.data(native, 'bounded');
   await env.event(native, 'stop');
   const result = await recorder.stop();
   assert.equal(result.reason, 'duration-limit');
   assert.equal(result.activeMs, 250);
+});
+
+test('a repeated native start event cannot restart the clock, extend the limit or leave a pause', async t => {
+  const env = environment(t);
+  const recorder = env.create({ maxActiveMs: 1000 });
+  const first = await env.begin(recorder);
+  env.advance(400);
+  const recording = recorder.getSnapshot();
+  await env.event(first.native, 'start');
+  assert.equal(recorder.getSnapshot(), recording, 'the snapshot is untouched');
+  env.advance(599);
+  assert.equal(recorder.getSnapshot().status, 'recording');
+  env.advance(1);
+  assert.equal(recorder.getSnapshot().status, 'stopping', 'the limit counts from the first start');
+  await env.data(first.native, 'audio'); await env.event(first.native, 'stop');
+  const limited = await recorder.stop();
+  assert.deepEqual([limited.activeMs, limited.wallMs], [1000, 1000]);
+  const second = await env.begin(recorder);
+  env.advance(100);
+  const pause = recorder.pause();
+  await env.event(second.native, 'pause'); await pause;
+  env.advance(300);
+  await env.event(second.native, 'start');
+  assert.equal(recorder.getSnapshot().status, 'paused');
+  env.advance(5000);
+  assert.equal(recorder.getSnapshot().status, 'paused', 'a paused session is not recording time');
+  const result = await complete(env, recorder, second.native);
+  assert.deepEqual([result.activeMs, result.wallMs], [100, 5400]);
 });
 
 test('control timeout fails recording and stop preempts pending controls', async t => {
@@ -402,6 +440,7 @@ test('MIME negotiation uses reported supported candidates without constructor re
   const { native, info } = await env.begin(recorder);
   assert.equal(native.options.mimeType, 'audio/webm');
   assert.equal(info.requestedMimeType, 'audio/webm');
+  assert.deepEqual(env.constructions, [{ mimeType: 'audio/webm' }], 'the unsupported candidate is never tried');
   await complete(env, recorder, native);
   const second = await env.begin(recorder, { mime: { candidates: ['audio/mp3'], fallback: 'browser' } });
   assert.equal('mimeType' in second.native.options, false);
@@ -495,17 +534,28 @@ test('observer exceptions and rejected async callbacks cannot alter settlement o
   const env = environment(t);
   const recorder = env.create();
   const events = [];
-  recorder.subscribe(() => { throw new Error('sensitive'); });
-  recorder.onEvent(async () => { throw new Error('sensitive async'); });
   recorder.onEvent(event => { events.push(event); });
-  const { native } = await env.begin(recorder);
-  const result = await complete(env, recorder, native);
-  await flush();
-  assert.equal(result.completion, 'complete');
-  assert.equal(env.tracks[0].stops, 1);
-  assert.ok(events.some(event => event.type === 'result'));
-  assert.ok(env.reports.length > 1);
-  assert.ok(env.reports.every(error => error.message === 'Recstead observer callback failed' && error.cause === undefined));
+  const run = async () => {
+    events.length = 0; env.reports.length = 0;
+    const { native } = await env.begin(recorder);
+    const result = await complete(env, recorder, native);
+    await flush(); await flush();
+    assert.equal(result.completion, 'complete');
+    assert.equal(env.tracks.at(-1).stops, 1);
+    assert.ok(events.some(event => event.type === 'result'));
+    assert.ok(env.reports.every(error => error.message === 'Recstead observer callback failed' && error.cause === undefined));
+    await recorder.reset();
+    return { states: events.filter(event => event.type === 'state').length, all: events.length };
+  };
+  // Each failing callback is reported once per invocation, so neither kind can be dropped silently.
+  const unsubscribe = recorder.subscribe(() => { throw new Error('sensitive'); });
+  const synchronous = await run();
+  assert.equal(env.reports.length, synchronous.states);
+  unsubscribe();
+  recorder.onEvent(async () => { throw new Error('sensitive async'); });
+  const asynchronous = await run();
+  assert.equal(env.reports.length, asynchronous.all);
+  assert.ok(asynchronous.all > asynchronous.states);
 });
 
 test('terminal subscribers may restart without old result events republishing old state', async t => {
@@ -630,7 +680,7 @@ test('idle cancel and reset preserve snapshot identity and cannot recurse throug
   assert.equal(recorder.getSnapshot().permissionPending, false);
 });
 
-test('bitrates outside the native unsigned-long range reject before microphone acquisition', async t => {
+test('a bitrate reaches the native recorder unchanged and values outside the unsigned-long range reject before acquisition', async t => {
   const env = environment(t);
   const recorder = env.create();
   for (const audioBitsPerSecond of [2 ** 32, Number.MAX_SAFE_INTEGER]) {
@@ -638,6 +688,101 @@ test('bitrates outside the native unsigned-long range reject before microphone a
     assert.equal(env.requests.length, 0);
     await rejects(starting, 'INVALID_OPTIONS');
   }
+  for (const audioBitsPerSecond of [1, 64000, 2 ** 32 - 1]) {
+    const { native } = await env.begin(recorder, { audioBitsPerSecond });
+    assert.deepEqual(native.options, { audioBitsPerSecond });
+    await recorder.cancel();
+  }
+  const { native } = await env.begin(recorder);
+  assert.deepEqual(native.options, {}, 'no bitrate and no format are requested by default');
+});
+
+test('a granted stream that is not exactly one live audio track is refused and fully released', async t => {
+  const audio = (readyState = 'live') => Object.assign(new Track(), { readyState });
+  const video = () => Object.assign(new Track(), { kind: 'video' });
+  for (const [name, tracks] of Object.entries({
+    'no track': () => [], 'one video track': () => [video()], 'an ended audio track': () => [audio('ended')],
+    'two audio tracks': () => [audio(), audio()], 'audio with video': () => [audio(), video()],
+  })) await t.test(name, async t => {
+    const env = environment(t);
+    const recorder = env.create();
+    const starting = recorder.start();
+    const granted = tracks();
+    const input = { getTracks: () => granted, getAudioTracks: () => granted.filter(track => track.kind === 'audio'),
+      getVideoTracks: () => granted.filter(track => track.kind === 'video') };
+    await env.grant(0, input);
+    // Checked before awaiting the command, so an accepted source fails here instead of waiting forever.
+    assert.equal(recorder.getSnapshot().status, 'failed');
+    assert.equal(env.constructions.length, 0, 'no recorder is built on an invalid source');
+    await rejects(starting, 'INVALID_SOURCE');
+    assert.deepEqual(granted.map(track => [track.stops, track.listenerCount]), granted.map(() => [1, 0]));
+    assert.equal(env.timers.size, 0);
+  });
+});
+
+test('documented defaults and limits are the ones in effect', async t => {
+  const MIB = 1024 * 1024;
+  await t.test('microphone request, format and bitrate', async t => {
+    const env = environment(t);
+    const { native } = await env.begin(env.create());
+    assert.deepEqual(env.requests[0].constraints, { audio: true, video: false });
+    assert.deepEqual(native.options, {});
+  });
+  await t.test('300,000 ms of active recording', async t => {
+    const env = environment(t);
+    const recorder = env.create();
+    await env.begin(recorder);
+    env.advance(299_999);
+    assert.equal(recorder.getSnapshot().status, 'recording');
+    env.advance(1);
+    assert.equal(recorder.getSnapshot().status, 'stopping');
+  });
+  await t.test('16 MiB of retained audio', async t => {
+    const env = environment(t);
+    const recorder = env.create();
+    const { native } = await env.begin(recorder);
+    await env.event(native, 'dataavailable', { data: new Blob([new Uint8Array(16 * MIB)], { type: native.mimeType }) });
+    assert.equal(recorder.getSnapshot().status, 'recording');
+    await env.data(native, 'x');
+    assert.equal(recorder.getSnapshot().status, 'stopping');
+    await env.event(native, 'stop');
+    await rejects(recorder.stop(), 'BUFFER_LIMIT');
+    assert.equal(recorder.getSnapshot().result.bytes, 16 * MIB);
+  });
+  await t.test('10,000 ms to start', async t => {
+    const env = environment(t);
+    const recorder = env.create();
+    const starting = recorder.start();
+    await env.grant();
+    env.advance(9_999);
+    assert.equal(recorder.getSnapshot().status, 'initializing');
+    env.advance(1);
+    await rejects(starting, 'INITIALIZATION_TIMEOUT');
+  });
+  await t.test('10,000 ms to finalize', async t => {
+    const env = environment(t);
+    const recorder = env.create();
+    const { native } = await env.begin(recorder);
+    await env.data(native, 'audio');
+    const stopping = recorder.stop();
+    env.advance(9_999);
+    assert.equal(recorder.getSnapshot().status, 'stopping');
+    env.advance(1);
+    await rejects(stopping, 'FINALIZATION_TIMEOUT');
+  });
+  await t.test('timeouts from 1,000 to 120,000 ms', async t => {
+    const env = environment(t);
+    const recorder = env.create();
+    for (const name of ['initializationTimeoutMs', 'finalizationTimeoutMs']) {
+      for (const value of [999, 120_001]) await rejects(recorder.start({ [name]: value }), 'INVALID_OPTIONS');
+      for (const value of [1_000, 120_000]) {
+        const starting = recorder.start({ [name]: value });
+        assert.equal(recorder.getSnapshot().status, 'acquiring');
+        await recorder.cancel(); await rejects(starting, 'CANCELLED');
+        await env.grant();
+      }
+    }
+  });
 });
 
 test('unexpected acquisition error names cannot resolve to inherited object properties', async t => {

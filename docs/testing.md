@@ -1,69 +1,98 @@
-# Testing and limitations
+# Testing and limits
 
-`0.1.0-alpha.0` is experimental. The results below describe specific checks; they do not establish broad browser or device support.
+Every check behind a Recstead release is automated. This page lists what those checks cover for `1.0.0-beta.0`, how to run them, and what they do not cover.
 
-## Development workflow checks
+## Tested engines
 
-The `0.1.0-alpha.1` candidate adds real HTTP and IndexedDB workflow tests for the richer example apps. Run `npm run check:all` after installing Chromium with `npx playwright install chromium`. The browser runner installs the package into a temporary consumer with no aliases, exercises both apps and writes reports to ignored `.artifacts/`. `npm run test:browser:published` exercises the pinned published `0.1.0-alpha.0` package as well.
+The example applications run against the packed tarball, installed into a separate project with no source aliases. Each engine records through its own `MediaRecorder`, and the tests decode the output.
 
-Chromium's generated microphone input feeds the native encoder. Tests decode the output and verify accepted message bytes, lost-response retry, note persistence, failed-save recovery, navigation, partial-output handling, tracks and object URLs. Permission delays/denial and recorder errors are injected scenarios. This provides application and native-encoder evidence, not physical microphone or broad browser qualification.
+| Engine | Version | Host | Recorded format | Audio source |
+| --- | --- | --- | --- | --- |
+| Chromium | 159.0 | macOS, Linux | `audio/webm;codecs=opus` | Engine test device |
+| Firefox | 159.0 | Linux | `audio/ogg; codecs=opus` | Engine test device |
+| WebKit | 27.2 | macOS | `audio/mp4; codecs=mp4a.40.2` | Generated tone |
 
-The message example's server validates MIME metadata and payload limits. Only the matching local endpoint and browser playback are exercised; another service's container/codec requirements still need their own validation.
+These are the browser builds shipped with Playwright 1.65.1. Chromium and Firefox generate their own microphone input. The WebKit build has no capture device, so the tests supply a Web Audio tone when the application asks for the microphone; WebKit's recorder still encodes it.
 
-## Recorded first-alpha results
+The WebKit build for Linux has no `MediaRecorder`. On Linux the WebKit run checks two things: both applications report `UNSUPPORTED_ENVIRONMENT` and never request capture, and their layouts fit a narrow viewport.
 
-The local Node.js 25.9.0 run passed 58 tests: 44 core tests, 11 React adapter tests and three release-tooling tests. The core tests include 100 successive controller sessions. All 11 React tests also passed with React 19.0.0 and 19.3.0 in isolated consumers; the primary run used React 18.3.1.
+## What the checks cover
 
-On 2026-09-18, the generated-audio sample passed both final-only and multiple-chunk recording in embedded Chromium 153 on macOS. The final-only WebM/Opus output had one chunk and decoded to 0.42 seconds. The pause/resume case had three chunks and decoded to 1.8 seconds, with the expected 440 Hz and 880 Hz tones in order. Both cases retained every native data byte, returned output after the native stop event and ended their generated tracks. These checks substituted a synthetic stream at acquisition and did not request microphone access.
+Browser workflows, in every engine above:
 
-A manual tester reported that the sample apps released the browser's capture indicator after Stop, Discard and React unmount with a real microphone in Chrome or Chromium. The exact browser build, operating system and device were not recorded. Unanswered permission, late grant, denied permission and device-disconnection checks remain unconfirmed on physical hardware. Firefox, Safari and mobile browsers remain unqualified.
+- Record, pause, resume and stop, then decode the result. Final-only output and output in several chunks.
+- Send a voice message over HTTP, including a lost response, a rejected upload, a stopped request and a send still pending when its composer closes. Retries reuse the same bytes without another microphone request, and the server's copy matches the recording byte for byte.
+- Save, reload, replay, download and delete voice notes in IndexedDB, including a failed save and unavailable storage. Stored notes and downloads match the recording byte for byte.
+- Discard, close or navigate while the permission request is pending, then grant it. The late stream is released and nothing is recorded.
+- A denied request, followed by a successful retry.
+- A recorder error during capture. The partial output cannot be sent or saved as complete.
+- Twelve consecutive sessions in each application, ending with no live track, no active recorder and no retained object URL.
 
-The packed artifact contained 21 allowed files, including public documentation. An isolated core consumer worked without React or browser globals, TypeScript checked the example sources, and all three sample apps built against the installed tarball. The React entry retained its client directive. Ordinary `npm pack` also built and produced a working package from a clean public copy with no initial build output.
+Two checks run in fewer engines. Forcing IndexedDB closed needs the Chromium DevTools protocol, so that workflow runs in Chromium only. The generated-tone encoder page needs Web Audio, which headless Firefox cannot start on a host without an audio output device; Firefox's other workflows cover its encoder.
 
-The CI matrix is configured for Node.js 22/24 and React 18.3.1/19.0.0/19.3.0. That matrix passed for the first-alpha release commit. Windows execution remains unverified. The new workflow job requires its own hosted run after these changes are pushed.
+Core and hooks, in Node.js with controllable browser substitutes:
 
-## Repository checks
+- Deterministic tests for delayed acquisition, cancellation, native event order, limits, timeouts and MIME evidence.
+- A lifecycle model test. It runs 400 seeded random sequences of commands, permission outcomes, native events and timer advances. After every step it checks that only the active session holds a live track, listeners or timers, that every command settles with the right outcome, that an earlier session or a late permission answer cannot change the current state, that the output holds exactly the audio delivered, and that active time matches the clock. Hosted CI runs 5,000 more sequences with a new seed on every run.
+- React tests for StrictMode, Suspense, layout effects and URL ownership, on React 18.3.1, 19.0.0 and 19.3.1.
+- A snapshot of the public exports, declarations and package entry points, so an API change cannot happen by accident.
 
-Use Node.js 24 or newer, or Node.js 22.13 or newer within the 22.x line:
+Package consumers, from the same tarball:
+
+- A core-only project with no React and no browser globals, loaded with `import` and with `require()`.
+- A type-only project compiled by TypeScript 5.0.4 and 7.0.2, with `Bundler` and `NodeNext` module resolution.
+- A Next.js 16.4.6 application with React 19.3.1: production build, server render, hydration without errors, a recording through the hooks, and release of the microphone when the route changes.
+
+Hosted CI runs the Node.js checks on Linux with Node.js 22, 24 and 26, and on macOS and Windows with Node.js 24. It runs the browser workflows on Linux in all three engines and on macOS in Chromium and WebKit.
+
+## Not verified
+
+No check uses a physical microphone, answers a real permission prompt or observes an operating-system capture indicator. Treat the following as untested:
+
+- Hardware behavior: device disconnection, device switching, sample-rate changes and operating-system audio interruptions.
+- Browser permission UI, including a prompt left unanswered. The tests delay and reject the request in script instead.
+- Branded Chrome, Edge, Firefox on macOS or Windows, and Safari. The engines above are their automation builds.
+- Mobile browsers: backgrounding, screen lock, calls and other interruptions.
+- Whether a third-party service accepts a recorded container or codec.
+
+Recstead fails with a typed error when the environment lacks the APIs it needs. It makes no promise beyond the engines in the table.
+
+## Run the checks
+
+Use Node.js 22.22.2 or newer in the 22.x line, 24.15 or newer in the 24.x line, or 26 and newer.
 
 ```sh
 npm ci
 npm run check
 ```
 
-The combined check lints and type-checks the library and development scripts, builds the package, runs its tests, checks Git-visible files for private material and verifies the packed artifact. The individual test names describe the event sequences they cover. Inspect the current output before relying on a previous pass.
-
-Deterministic tests exercise delayed acquisition, command cancellation, native event ordering and resource ownership using controllable browser substitutes. React tests exercise hook lifetime, layout-effect actions, Suspense and cleanup. Tooling tests exercise Git-index privacy checks and artifact hash verification. Package checks operate on the artifact a consumer would install, rather than treating source imports as package validation.
-
-These checks do not interact with a physical microphone, dismiss a permission prompt or observe an operating-system capture indicator. They cannot qualify a native codec. Existing research experiments against another recorder do not count as Recstead validation.
-
-## Try the demo
+`check` lints, type-checks, builds, runs the Node.js tests, verifies that no private file is visible to Git and inspects the packed tarball.
 
 ```sh
-npm run demo
+npx playwright install chromium firefox webkit
+npm run test:browser
+npm run check:consumers
 ```
 
-Open the address printed by the command in a browser with microphone recording support. Use a secure context and a non-sensitive spoken sample or generated tone. Do not include personal recordings in bug reports.
+`test:browser` runs the workflows in every engine that can launch on your machine and reports the others as unavailable. Pass `-- --project=chromium` to choose engines. Set `RECSTEAD_REQUIRE_ENGINES=chromium,firefox,webkit` to fail when a listed engine cannot launch. `check:consumers` runs the TypeScript and Next.js fixtures. `npm run check:all` runs all three commands.
 
-## Physical microphone checks
+```sh
+npm run test:browser:container
+```
 
-Record the package version, browser version, operating system, device and outcome when running these checks:
+This runs the three Linux engines in Playwright's container image against the tarball already packed on your machine. It needs Docker. Use it when an engine does not launch natively.
 
-1. Start with permission unanswered. Press Discard. Grant permission afterward. The cancelled session must not start recording and its late microphone stream must end.
-2. Deny permission. Confirm that the UI reports the error and a later deliberate retry can succeed after the permission setting changes.
-3. Record a short sample, pause, resume and stop. Play the returned complete output and confirm that the final part is present.
-4. Discard during recording. Confirm that no completed recording is offered and the browser or operating-system capture indicator clears.
-5. Unmount the recording component while acquiring and while recording. Confirm that capture ends and a late permission grant does not revive it.
-6. Repeat recording and stopping with the same controller. Confirm that previous playback is not confused with a new result and the microphone indicator clears after each session.
-7. Disconnect the input device where practical. Confirm that the application handles failure and does not label partial output as complete.
+`npm run test:browser:published` runs the same workflows against the published `0.1.0-alpha.1` package, pinned by version.
 
-Permission UI can outlive logical cancellation. Capture indicators can reflect other tabs or applications; check the target tab's tracks as well as the visible indicator.
+Reports, traces and screenshots are written to `.artifacts/`, which Git ignores. Each run records the engine versions, the outcome counts and the SHA-256 of the tarball it tested.
 
-## Native encoder checks
+To explore other lifecycle sequences:
 
-Synthetic browser recording can verify that a native encoder accepts the stream and the completed output decodes. It should record the browser build, actual MIME metadata, bytes, event order and decoded duration. Test final-only output as well as several chunks. A container header alone does not establish that output is playable.
+```sh
+RECSTEAD_MODEL_SEED=7 RECSTEAD_MODEL_RUNS=20000 node --test tests/model.test.mjs
+```
 
-Keep such a result separate from physical microphone and permission checks. A Chromium result does not qualify Firefox or Safari. Automated WebKit does not qualify macOS Safari, and desktop results do not qualify mobile interruptions.
+A failure prints its seed and the shortest sequence that still reproduces it.
 
 ## Known limits
 
@@ -73,8 +102,7 @@ Keep such a result separate from physical microphone and permission checks. A Ch
 - Observed active time differs from decoded audio duration.
 - MIME support reports do not prove that a particular backend accepts the encoded output.
 - A partial recording may be unplayable.
-- Mobile backgrounding, screen lock, interruptions and device changes have no qualified support claim.
 
 ## Report a problem
 
-Supply a minimal reproduction, exact package/browser/OS versions, the command sequence, expected result, observed state or error code, and whether the issue also occurs using native browser APIs. Use synthetic data. Remove account identifiers, tokens, native error causes containing private data and personal media before sharing logs.
+Supply a minimal reproduction, exact package, browser and operating-system versions, the command sequence, the expected result, the observed state or error code, and whether the issue also occurs with the native browser APIs. Use generated audio. Remove account identifiers, tokens, native error causes containing private data and personal media before sharing logs.

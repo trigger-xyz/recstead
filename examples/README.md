@@ -1,6 +1,6 @@
 # Example applications
 
-Use Node.js 24 or newer for development, or Node.js 22.13 or newer within the 22.x line. From the repository root:
+For development, use Node.js 22.22.2 or newer in the 22.x line, 24.15 or newer in the 24.x line, or 26 and newer. From the repository root:
 
 ```sh
 npm ci
@@ -25,7 +25,7 @@ Server limits are 30 messages, 64 MiB retained audio, 16 MiB per recording and t
 
 ## Voice notes, plain TypeScript
 
-Open `/vanilla/`. Record, review, name and save a note. Saved notes use IndexedDB in the browser, and can be replayed, downloaded or deleted after a reload. Nothing is uploaded from this app. Browser storage is not a backup; it may be cleared by the browser or user.
+Open `/vanilla/`. Record, review, name and save a note. Saved notes use IndexedDB in the browser, and can be replayed, downloaded or deleted after a reload. Each note is stored as bytes with its MIME type, because WebKit rejects Blob values in IndexedDB for private and other ephemeral sessions. Nothing is uploaded from this app. Browser storage is not a backup; it may be cleared by the browser or user.
 
 A workspace-owned controller survives switching between the note list and detail views. Its recording controls remain visible. Leaving the page ends capture; unfinished recordings and unsaved drafts do not survive a reload. Only explicit Save stores a complete recording.
 
@@ -51,14 +51,14 @@ Use Tab to move between controls and Enter or Space to activate buttons. Opening
 
 ```sh
 npm run check
-npx playwright install chromium
+npx playwright install chromium firefox webkit
 npm run test:browser
-npm run test:browser:published
+npm run check:consumers
 ```
 
-`check` runs lint, strict type checks, deterministic tests, HTTP/IndexedDB tests, privacy checks and installed-tarball builds. `test:browser` builds a candidate tarball, installs it into a temporary consumer and runs the full Chromium app suite against that package with no source aliases. `test:browser:published` runs the same suite against the pinned published baseline, `recstead@0.1.0-alpha.0`. It deliberately does not follow a mutable npm tag. `check:all` combines the local checks and candidate browser suite.
+`check` runs lint, strict type checks, deterministic tests, HTTP/IndexedDB tests, privacy checks and installed-tarball builds. `test:browser` builds a candidate tarball, installs it into a temporary consumer and runs both applications against that package, with no source aliases, in Chromium, Firefox and WebKit. `check:consumers` adds TypeScript and Next.js consumers. `check:all` runs all three. `test:browser:published` runs the same workflows against `recstead@0.1.0-alpha.1`, pinned by version instead of a mutable npm tag.
 
-The browser suite uses Chromium's generated microphone input and native MediaRecorder, verifies decoded playback, exercises actual local HTTP and IndexedDB operations, and checks owned-track and URL cleanup. Permission denial/delay and recorder error cases are injected by tests. These are not physical-microphone, Safari or mobile qualification. Reports, traces and screenshots stay in ignored `.artifacts/`. Native device checks remain a separate [testing protocol](../docs/testing.md).
+Each engine encodes with its own MediaRecorder. The tests decode the playback, exercise actual local HTTP and IndexedDB operations, and count live tracks, active recorders and object URLs after repeated sessions. Permission denial, permission delay and recorder errors are injected by the tests. No check uses a physical microphone or a mobile device; see [testing and limits](../docs/testing.md). Reports, traces and screenshots stay in ignored `.artifacts/`.
 
 The `/synthetic/` page remains available for generated-tone checks of final-only and multiple-chunk output, pause/resume, native event order, byte retention and decoding.
 

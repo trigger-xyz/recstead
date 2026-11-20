@@ -1,6 +1,6 @@
 # API reference
 
-These APIs describe `0.1.0-alpha.0`. Type declarations shipped with the packed artifact are the complete type reference. Alpha changes may be incompatible.
+These APIs describe `1.0.0-beta.0`, the candidate for the 1.0 contract. Type declarations shipped with the package are the complete type reference. For patterns built on these APIs, read the [integration guide](integration.md).
 
 ## Entry points
 
@@ -11,6 +11,8 @@ These APIs describe `0.1.0-alpha.0`. Type declarations shipped with the packed a
 | `recstead/react` | `useRecorder`, `useRecorderSession`, `useRecordingUrl` and hook types |
 
 The core has no React dependency. Importing it or creating a controller does not request permission or create browser resources. Recording requires a secure browser context with `getUserMedia` and `MediaRecorder`; server rendering cannot record audio.
+
+The package is an ES module. The React entry imports the core entry, so an application that uses both loads one copy of the core. CommonJS code can load it with `require()` on Node.js 22.12 and newer.
 
 ## Create a controller
 

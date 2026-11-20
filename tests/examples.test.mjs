@@ -46,13 +46,41 @@ async function api(t, options) {
     }), base };
 }
 
+/**
+ * A PUT whose body the test delivers piece by piece, so the test decides when the upload can finish.
+ * @param {string} base @param {string} id
+ */
+function streamedPut(base, id) {
+  /** @type {import('node:http').ClientRequest | undefined} */
+  let upload;
+  /** @type {Promise<number | undefined>} */
+  const status = new Promise((resolve, reject) => {
+    upload = request(`${base}/api/messages/${id}`, { method: 'PUT', headers: { 'Content-Type': 'audio/webm', 'X-Conversation': 'team' } },
+      response => { response.resume(); response.once('end', () => resolve(response.statusCode)); });
+    upload.on('error', reject);
+  });
+  return {
+    write: (/** @type {string} */ text) => new Promise(done => { upload?.write(text, () => done(undefined)); }),
+    end: (/** @type {string} */ text) => { upload?.end(text); return status; },
+  };
+}
+/** Wait until the server has started handling this many uploads. @param {{ get(): Promise<Response> }} a @param {number} count */
+async function started(a, count) {
+  while ((await (await a.get()).json()).requests < count) await tick();
+}
+
 test('local API accepts actual bytes, replays retries and rejects identifier reuse with other content', async t => {
   const a = await api(t);
   assert.equal((await a.put()).status, 201);
   assert.equal((await a.put()).status, 200);
+  // The same identifier with anything else is refused: other bytes of any length, another type, another conversation.
   assert.equal((await a.put('message-001', 'different')).status, 409);
+  assert.equal((await a.put('message-001', 'AUDIO')).status, 409);
+  assert.equal((await a.put('message-001', 'audio', { 'Content-Type': 'audio/ogg' })).status, 409);
+  assert.equal((await a.put('message-001', 'audio', { 'X-Conversation': 'friends' })).status, 409);
   const state = await (await a.get()).json();
-  assert.equal(state.messages.length, 1); assert.equal(state.requests, 3); assert.equal(state.bytes, 5);
+  assert.equal(state.messages.length, 1); assert.equal(state.requests, 6); assert.equal(state.bytes, 5);
+  assert.deepEqual([state.messages[0].mimeType, state.messages[0].conversation], ['audio/webm', 'team']);
   assert.equal(await (await fetch(`${a.base}/api/messages/message-001/audio`)).text(), 'audio');
 });
 
@@ -136,27 +164,51 @@ test('API validates type, empty and oversized requests and collection limits wit
   assert.equal((await (await a.get()).json()).bytes, 5);
 });
 
-test('API rejects cross-site writes and clear invalidates an upload already waiting', async t => {
-  const a = await api(t, { delayMs: 150 });
+test('the item limit and the byte limit each refuse a message on their own', async t => {
+  const counted = await api(t, { maxItems: 1, maxBytes: 1000 });
+  assert.equal((await counted.put()).status, 201);
+  assert.equal((await counted.put('message-002')).status, 507);
+  const sized = await api(t, { maxItems: 10, maxBytes: 8 });
+  assert.equal((await sized.put()).status, 201);
+  assert.equal((await sized.put('message-002')).status, 507);
+  assert.equal((await sized.put('message-003', 'aud')).status, 201, 'a message that still fits is accepted');
+  const state = await (await sized.get()).json();
+  assert.deepEqual([state.messages.length, state.bytes], [2, 8]);
+});
+
+test('API rejects cross-site writes and clear invalidates an upload already in progress', async t => {
+  const a = await api(t);
   assert.equal((await a.put('message-001', 'audio', { Origin: 'https://example.com' })).status, 403);
-  const upload = a.put('message-002', 'audio', { 'X-Example-Scenario': 'delay' });
-  for (let i = 0; i < 100; i++) { if ((await (await a.get()).json()).requests) break; await tick(); }
-  await a.clear();
-  assert.equal((await upload).status, 409);
+  // The test holds the body open, so the upload cannot commit before the clear on any machine.
+  const upload = streamedPut(a.base, 'message-002');
+  await upload.write('aud');
+  await started(a, 1);
+  assert.equal((await a.clear()).status, 200);
+  assert.equal(await upload.end('io'), 409);
   assert.equal((await (await a.get()).json()).messages.length, 0);
+});
+
+test('API buffers two uploads at most and frees a place when one finishes', async t => {
+  const a = await api(t);
+  const first = streamedPut(a.base, 'message-001');
+  const second = streamedPut(a.base, 'message-002');
+  await first.write('aud'); await second.write('aud');
+  await started(a, 2);
+  assert.equal((await a.put('message-003')).status, 429);
+  assert.equal(await first.end('io'), 201);
+  assert.equal((await a.put('message-003')).status, 201);
+  assert.equal(await second.end('io'), 201);
+  assert.equal((await (await a.get()).json()).messages.length, 3);
 });
 
 test('API bounds chunked uploads without trusting Content-Length and accepts a later valid request', async t => {
   const a = await api(t, { maxRecordingBytes: 6 });
-  const status = await new Promise((resolve, reject) => {
-    const upload = request(`${a.base}/api/messages/message-001`, {
-      method: 'PUT', headers: { 'Content-Type': 'audio/webm', 'X-Conversation': 'team' },
-    }, response => { response.resume(); response.once('end', () => resolve(response.statusCode)); });
-    upload.on('error', reject);
-    upload.write('aud');
-    setImmediate(() => upload.end('too large'));
-  });
-  assert.equal(status, 413);
+  // Each piece fits the limit; only their sum exceeds it.
+  const upload = streamedPut(a.base, 'message-001');
+  await upload.write('aud');
+  await started(a, 1);
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(await upload.end('io12'), 413);
   assert.equal((await (await a.get()).json()).bytes, 0);
   assert.equal((await a.put()).status, 201);
 });
@@ -177,6 +229,39 @@ test('outbox preserves the Blob and identifier after unknown acceptance and retr
   assert.equal(outbox.getSnapshot().entries[0].state, 'accepted');
   assert.equal(outbox.getSnapshot().entries[0].blob, null);
   outbox.dispose();
+});
+
+test('an acknowledgment for another recording never releases the local one', async () => {
+  for (const [field, value] of Object.entries({ id: 'message-999', conversation: 'friends', bytes: 4, mimeType: 'audio/ogg' })) {
+    let calls = 0;
+    const outbox = new Outbox(async () => Response.json(++calls === 1 ? { ...message(), [field]: value } : message()), () => 'message-001');
+    const result = complete(); outbox.enqueue(result, 'team', 'normal'); await tick();
+    const [entry] = outbox.getSnapshot().entries;
+    assert.deepEqual([entry.state, entry.blob], ['unknown', result.blob], field);
+    await outbox.send('message-001');
+    assert.deepEqual([calls, outbox.getSnapshot().entries[0].state], [2, 'accepted'], field);
+    outbox.dispose();
+  }
+});
+
+test('an upload that never answers stops at its deadline, keeps the recording and can be retried', async t => {
+  /** @type {AbortSignal[]} */
+  const signals = [];
+  const outbox = new Outbox((_url, options) => {
+    if (options?.signal) signals.push(options.signal);
+    if (signals.length > 1) return Promise.resolve(Response.json(message()));
+    return new Promise((_resolve, reject) => options?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true }));
+  }, () => 'message-001');
+  t.after(() => outbox.dispose());
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const recording = complete(); outbox.enqueue(recording, 'team', 'normal');
+  t.mock.timers.tick(9_999); await tick();
+  assert.deepEqual([signals[0].aborted, outbox.getSnapshot().entries[0].state], [false, 'pending']);
+  t.mock.timers.tick(1); await tick();
+  assert.deepEqual([signals[0].aborted, outbox.getSnapshot().entries[0].state], [true, 'unknown']);
+  assert.equal(outbox.getSnapshot().entries[0].blob, recording.blob);
+  await outbox.send('message-001');
+  assert.deepEqual([signals.length, outbox.getSnapshot().entries[0].state], [2, 'accepted']);
 });
 
 test('outbox rejects partial recordings and coalesces sends while keeping draft on rejection', async () => {
@@ -202,13 +287,21 @@ test('stale history response cannot erase a message accepted during loading', as
 });
 
 test('failed collection clear leaves cancelled requests unknown and retryable, with no stuck pending state', async () => {
+  /** @type {AbortSignal[]} */
+  const uploads = [];
   const outbox = new Outbox((_url, options) => {
     if (options?.method === 'DELETE') return Promise.resolve(new Response('', { status: 503 }));
+    if (options?.signal) uploads.push(options.signal);
+    if (uploads.length > 1) return Promise.resolve(Response.json(message()));
     return new Promise((_resolve, reject) => options?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError'))));
   }, () => 'message-001');
-  outbox.enqueue(complete(), 'team', 'normal');
+  const recording = complete(); outbox.enqueue(recording, 'team', 'normal');
   await assert.rejects(outbox.clear(), /clear/); await tick();
-  assert.equal(outbox.getSnapshot().entries[0].state, 'unknown');
+  // The upload itself has to stop. Marking it unknown while it still ran would block every retry.
+  assert.equal(uploads[0].aborted, true);
+  assert.deepEqual([outbox.getSnapshot().entries[0].state, outbox.getSnapshot().entries[0].blob], ['unknown', recording.blob]);
+  await outbox.send('message-001');
+  assert.deepEqual([uploads.length, outbox.getSnapshot().entries[0].state], [2, 'accepted']);
   outbox.dispose(); assert.equal(outbox.getSnapshot().entries.length, 0);
 });
 
@@ -286,14 +379,59 @@ test('note storage persists completed Blobs across reopen and failed transaction
   await second.clear(); assert.equal((await second.list()).length, 0); second.close();
 });
 
+test('notes are stored as bytes, restore their MIME type and still read Blob records from the alphas', async () => {
+  const factory = new IDBFactory();
+  const storage = new NoteStorage(factory, 'bytes'); await storage.save(note());
+  /** @type {IDBDatabase} */
+  const db = await new Promise((resolve, reject) => {
+    const request = factory.open('bytes', 1);
+    request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error);
+  });
+  /** @param {IDBRequest} request */
+  const settle = request => new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error);
+  });
+  // WebKit rejects Blob values in ephemeral sessions, so no stored field may be a Blob.
+  const stored = await settle(db.transaction('notes').objectStore('notes').get('note-1'));
+  assert(stored.bytes instanceof ArrayBuffer);
+  assert.equal(Object.values(stored).some(value => value instanceof Blob), false);
+  await settle(db.transaction('notes', 'readwrite').objectStore('notes').put(
+    { id: 'legacy', title: 'Older note', createdAt: 0, blob: new Blob(['older'], { type: 'audio/ogg' }), mimeType: 'audio/ogg', activeMs: 5 }));
+  db.close();
+  const [current, legacy] = await storage.list();
+  assert.equal(current.blob.type, 'audio/webm'); assert.equal(await current.blob.text(), 'audio');
+  assert.equal(legacy.blob.type, 'audio/ogg'); assert.equal(await legacy.blob.text(), 'older');
+  storage.close();
+});
+
 test('note count and byte limits remain atomic across concurrent tabs', async () => {
   const factory = new IDBFactory();
   const a = new NoteStorage(factory, 'bounded', { count: 1, bytes: 5 });
   const b = new NoteStorage(factory, 'bounded', { count: 1, bytes: 5 });
   const outcomes = await Promise.allSettled([a.save(note('a')), b.save(note('b'))]);
-  assert.equal(outcomes.filter(result => result.status === 'fulfilled').length, 1);
-  const kept = (await a.list())[0];
+  assert.deepEqual(outcomes.map(result => result.status).sort(), ['fulfilled', 'rejected']);
+  const lost = outcomes.find(result => result.status === 'rejected');
+  assert.match(String(lost?.status === 'rejected' && lost.reason), /full/, 'the other save is refused for capacity, not by accident');
+  const notes = await a.list();
+  assert.deepEqual(notes.map(saved => saved.id), [outcomes[0].status === 'fulfilled' ? 'a' : 'b'], 'exactly the winning note is stored');
+  const kept = notes[0];
   await assert.rejects(a.save({ ...kept, blob: new Blob(['too large']) }), /full/);
   assert.equal(await (await a.list())[0].blob.text(), 'audio');
   a.close(); b.close();
+});
+
+test('the note count limit and the note byte limit each refuse a save on their own', async () => {
+  const factory = new IDBFactory();
+  const counted = new NoteStorage(factory, 'count-only', { count: 1, bytes: 1000 });
+  await counted.save(note('a'));
+  await assert.rejects(counted.save(note('b')), /full/);
+  await counted.save(note('a', 'again'));
+  assert.deepEqual(await Promise.all((await counted.list()).map(async saved => [saved.id, await saved.blob.text()])), [['a', 'again']]);
+  counted.close();
+  const sized = new NoteStorage(factory, 'bytes-only', { count: 10, bytes: 8 });
+  await sized.save(note('a'));
+  await assert.rejects(sized.save(note('b')), /full/);
+  await sized.save(note('c', 'aud'));
+  assert.deepEqual((await sized.list()).map(saved => saved.id).sort(), ['a', 'c']);
+  sized.close();
 });

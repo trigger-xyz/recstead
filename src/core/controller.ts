@@ -367,7 +367,8 @@ export function createRecorder(defaults: RecorderOptions = {}): Recorder {
       session.recorder = recorder;
       listen(session, recorder, 'start', () => {
         rememberMime(session);
-        if (session.stopping) return;
+        // A recorder starts once. A repeated event must not restart the clock or leave a pause.
+        if (session.stopping || session.info) return;
         clearTimer(session, 'initializationTimer');
         const time = now();
         session.startedAt = time;

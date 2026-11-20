@@ -2,23 +2,21 @@
 
 Browser microphone recording with a TypeScript core and React hooks.
 
-This repository contains `0.1.0-alpha.1`. The API is experimental and may change. Chrome/Chromium has a reported physical-microphone cleanup pass. Firefox, Safari and mobile browsers remain unqualified. See [testing and limitations](docs/testing.md) for the evidence and remaining checks.
+This repository contains `1.0.0-beta.0`, the first candidate for the 1.0 API. The recording workflows are tested automatically in Chromium, Firefox and WebKit. They are not tested with physical microphones, branded browsers or mobile devices. See [testing and limits](docs/testing.md).
 
 Recstead owns microphone acquisition, recording state and the tracks it acquires. It returns a complete Blob after the recorder delivers its final data. Your application owns playback, uploads and any recordings it keeps.
 
-## Install the alpha
-
-Install the latest published alpha using the `next` tag:
+## Install the beta
 
 ```sh
 npm install recstead@next
 ```
 
-To test the current checkout before publication, use the locally packed artifact described below.
+React applications need React 18.3.1 or newer within the declared peer range. Core-only applications do not need React. The package is an ES module; `require('recstead')` works on Node.js 22.12 and newer.
 
 ## Build and try locally
 
-Use Node.js 24 or newer for repository development, or Node.js 22.13 or newer within the 22.x line.
+For repository development, use Node.js 22.22.2 or newer in the 22.x line, 24.15 or newer in the 24.x line, or 26 and newer.
 
 ```sh
 npm ci
@@ -31,10 +29,8 @@ The demo command prints the address to open. Try the [React voice-message compos
 The check command builds and verifies the package, including a local tarball. To evaluate a local build, install that artifact from your application. For sibling application and Recstead directories:
 
 ```sh
-npm install ../recstead/.artifacts/recstead-0.1.0-alpha.1.tgz
+npm install ../recstead/.artifacts/recstead-1.0.0-beta.0.tgz
 ```
-
-React applications also need React 18.3.1 or newer within the package's declared peer range. Core-only applications do not need React. This package is ESM only.
 
 ## Record with the core
 
@@ -129,6 +125,10 @@ export function VoiceMessage() {
 - Browser-native encoding. No WAV conversion, resampling or automatic upload.
 - Defaults of 16 MiB retained payload and 300,000 active milliseconds per recording. These limits do not bound the browser's total memory use.
 
-The result reports the observed MIME type. Relabelling a Blob does not convert its bytes. Check your server's accepted container and codec before uploading. A failed recording may expose a clearly marked partial result; never treat it as complete output.
+The result reports the observed MIME type. Chromium records WebM, Firefox records Ogg and WebKit records MP4, so send and store that type with the audio. Relabelling a Blob does not convert its bytes. A failed recording may expose a clearly marked partial result; never treat it as complete output.
 
-Read the [API reference](docs/api.md), [architecture](docs/architecture.md) and [contribution guide](CONTRIBUTING.md). Recstead is released under the [MIT license](LICENSE).
+## Stability
+
+The exports, options, statuses and error codes in `1.0.0-beta.0` are the intended 1.0 contract, and a test compares them with a recorded snapshot. A further beta is published only if a defect forces a change. From 1.0.0 the package follows semantic versioning.
+
+Read the [integration guide](docs/integration.md), [API reference](docs/api.md), [architecture](docs/architecture.md), [testing and limits](docs/testing.md) and [contribution guide](CONTRIBUTING.md). Recstead is released under the [MIT license](LICENSE).

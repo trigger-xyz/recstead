@@ -3,14 +3,16 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, existsSync, realpathSync, lstatSync } from 'node:fs';
 import { resolve, sep } from 'node:path';
 /** @param {string[]} args @returns {string} */
-const git = (...args) => execFileSync('git', args, { encoding: 'utf8' });
+// The default 1 MiB output limit would fail the check on any larger tracked file.
+const git = (...args) => execFileSync('git', args, { encoding: 'utf8', maxBuffer: 1024 ** 3 });
 const tracked = new Set(git('ls-files', '-z').split('\0').filter(Boolean));
 const candidates = new Set([...tracked, ...git('ls-files', '--others', '--exclude-standard', '-z').split('\0').filter(Boolean)]);
 const forbidden = /^(?:\.private|work|outputs|m0|node_modules|\.artifacts)(?:\/|$)|(?:^|\/)\.env(?:\.|$)|(?:^|\/)\.npmrc$/;
 /** @param {string} name @param {string} text @param {string} location */
 function inspect(name, text, location) {
-  assert(!/\/Users\/[^/\s]+\//.test(text), `Personal absolute path in ${location}: ${name}`);
-  assert(!/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/.test(text), `Private key in ${location}: ${name}`);
+  // Home directories on macOS, Linux and Windows, the last also as written in JSON.
+  assert(!/\/(?:Users|home)\/[^/\s]+\/|[A-Za-z]:\\{1,2}Users\\{1,2}[^\\\s"']+\\/.test(text), `Personal absolute path in ${location}: ${name}`);
+  assert(!/-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----/.test(text), `Private key in ${location}: ${name}`);
   assert(!/\bnpm_[A-Za-z0-9]{30,}\b/.test(text), `Possible npm credential in ${location}: ${name}`);
 }
 const root = realpathSync('.');

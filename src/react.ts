@@ -21,7 +21,7 @@ import {
 } from './core/index.js';
 
 export interface RecorderCallbacks {
-  onEvent?: (event: RecorderEvent) => void;
+  onEvent?: ((event: RecorderEvent) => void) | undefined;
 }
 
 export type RecorderView = RecorderSnapshot & Pick<

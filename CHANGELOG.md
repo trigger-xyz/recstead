@@ -1,5 +1,40 @@
 # Changelog
 
+## 1.0.0-beta.0
+
+First candidate for the 1.0 API. The recorder commands, options, statuses and error codes are unchanged from `0.1.0-alpha.1`.
+
+Core:
+
+- A repeated native `start` event is ignored. Before, it restarted the session clock, extended the duration limit and turned a paused session back to `recording`.
+- The option types accept an explicit `undefined`, which keeps the default as the reference says. `{ maxBytes: maybeLimit }` now compiles under `exactOptionalPropertyTypes`.
+
+Package:
+
+- The React entry now imports the core entry instead of bundling its own copy. `recstead/react` shrinks from 38 kB to 6 kB, and an application that uses both entries loads the core once.
+- The export map uses the `default` condition, so `require('recstead')` works on Node.js 22.12 and newer.
+- The declarations are built with TypeScript 7.0.2 and checked with TypeScript 5.0.4 and 7.0.2.
+
+Examples:
+
+- Voice notes are stored in IndexedDB as bytes with their MIME type. WebKit rejects Blob values there in private and other ephemeral sessions, which made every save fail. Notes saved by the alphas remain readable.
+
+Checks:
+
+- The application workflows run in Chromium, Firefox and WebKit against the installed tarball, each encoding with its own MediaRecorder: WebM/Opus, Ogg/Opus and MP4/AAC.
+- A seeded lifecycle model test runs random command, permission, native-event and timer sequences. After every step it checks tracks, listeners, timers, command outcomes, the recorded bytes, active time, warnings and session identifiers.
+- Repeated-session checks count live tracks, active recorders and object URLs in each engine.
+- New consumers: a type-only project and a Next.js 16 production application covering server render, hydration, recording and route-change cleanup.
+- A snapshot test guards the public exports, the declarations and the package entry points.
+- Hosted CI runs the Node.js checks on Linux with Node.js 22, 24 and 26 and on macOS and Windows with Node.js 24, and the browser workflows on Linux and macOS.
+- Release preparation requires a passing native-recording result for all three engines, bound to the tarball hash.
+- Development uses React 19.3.1, TypeScript 7.0.2, Playwright 1.65.1 and jsdom 31. The React peer range is unchanged, and CI still tests React 18.3.1 and 19.0.0.
+
+Documentation:
+
+- New [integration guide](docs/integration.md).
+- [Testing and limits](docs/testing.md) now lists the tested engine versions and what is not verified: physical microphones, permission UI, branded browsers and mobile devices.
+
 ## 0.1.0-alpha.1
 
 - Replace the recorder control demos with a React voice-message app and a TypeScript voice-note workspace.

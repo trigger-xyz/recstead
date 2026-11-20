@@ -2,16 +2,20 @@ export type RecorderStatus =
   | 'idle' | 'acquiring' | 'initializing' | 'recording' | 'paused'
   | 'stopping' | 'finalizing' | 'ready' | 'failed' | 'disposed';
 
-export type RecorderSource = { kind: 'microphone'; constraints?: MediaTrackConstraints };
+export type RecorderSource = { kind: 'microphone'; constraints?: MediaTrackConstraints | undefined };
 
+/**
+ * An explicit `undefined` keeps the default, so every option also accepts it.
+ * That keeps `{ maxBytes: maybeLimit }` valid under `exactOptionalPropertyTypes`.
+ */
 export interface RecorderOptions {
-  source?: RecorderSource;
-  mime?: { candidates: readonly string[]; fallback: 'browser' | 'error' };
-  audioBitsPerSecond?: number;
-  maxBytes?: number;
-  maxActiveMs?: number;
-  initializationTimeoutMs?: number;
-  finalizationTimeoutMs?: number;
+  source?: RecorderSource | undefined;
+  mime?: { candidates: readonly string[]; fallback: 'browser' | 'error' } | undefined;
+  audioBitsPerSecond?: number | undefined;
+  maxBytes?: number | undefined;
+  maxActiveMs?: number | undefined;
+  initializationTimeoutMs?: number | undefined;
+  finalizationTimeoutMs?: number | undefined;
 }
 
 export interface SessionInfo {

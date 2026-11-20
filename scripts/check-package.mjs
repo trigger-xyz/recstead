@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { build } from 'vite';
@@ -8,6 +8,8 @@ import { createHash } from 'node:crypto';
 import { runNpm } from './lib/npm.mjs';
 const root = process.cwd();
 await mkdir('.artifacts', { recursive: true });
+// A failed run must not leave an earlier passing record behind.
+await rm('.artifacts/package-check.json', { force: true });
 /** @type {unknown} */
 const response = JSON.parse(runNpm(['pack', '--json', '--ignore-scripts', '--pack-destination', '.artifacts']));
 assert(Array.isArray(response) && response.length === 1);
@@ -21,15 +23,27 @@ assert.equal(typeof packed.integrity, 'string');
 for (const file of packed.files) {
   assert(/^(?:dist\/|docs\/[a-z-]+\.md$|README\.md$|CHANGELOG\.md$|CONTRIBUTING\.md$|LICENSE$|package\.json$)/.test(file.path), `Unexpected published file: ${file.path}`);
 }
-const temp = await mkdtemp(join(tmpdir(), 'recstead-package-'));
+// The canonical path: Windows reports its temporary directory under an 8.3 short name, and Vite
+// resolves its root to the long one, which would put the example pages outside that root.
+const temp = await realpath(await mkdtemp(join(tmpdir(), 'recstead-package-')));
+/** @type {Record<string, unknown> | undefined} */
+let record;
 try {
+  // Check a private copy, so the hash recorded below is the hash of the bytes that were installed
+  // even if another command packs again in the meantime.
+  const tarball = join(temp, packed.filename);
+  await cp(resolve('.artifacts', packed.filename), tarball);
+  const tarballSha256 = createHash('sha256').update(await readFile(tarball)).digest('hex');
   await writeFile(join(temp, 'package.json'), JSON.stringify({ private: true, type: 'module' }));
-  runNpm(['install', '--ignore-scripts', '--omit=optional', '--no-audit', '--no-fund', resolve('.artifacts', packed.filename)], { cwd: temp, stdio: 'pipe' });
+  runNpm(['install', '--ignore-scripts', '--omit=optional', '--no-audit', '--no-fund', tarball], { cwd: temp, stdio: 'pipe' });
   const coreCheck = `import assert from 'node:assert/strict';
 for (const key of ['window','document','navigator','MediaRecorder']) Object.defineProperty(globalThis,key,{configurable:true,get(){throw new Error('Unexpected browser read: '+key)}});
 const core = await import('recstead');
 const alias = await import('recstead/core');
 assert.equal(core.createRecorder,alias.createRecorder);
+// CommonJS consumers load the same ES module instance through require().
+const { createRequire } = await import('node:module');
+assert.equal(createRequire(import.meta.url)('recstead').createRecorder,core.createRecorder);
 const recorder=core.createRecorder();
 assert.equal(recorder.getSnapshot().status,'idle');
 assert.equal(recorder.getSnapshot(),recorder.getSnapshot());
@@ -42,7 +56,7 @@ await recorder.dispose();`;
   const linkType = process.platform === 'win32' ? 'junction' : 'dir';
   for (const name of ['react', 'react-dom', 'scheduler', 'csstype']) await symlink(join(root, 'node_modules', name), join(nodeModules, name), linkType);
   await mkdir(join(nodeModules, '@types'), { recursive: true });
-  for (const name of ['react','react-dom','prop-types']) await symlink(join(root,'node_modules','@types',name),join(nodeModules,'@types',name),linkType);
+  for (const name of ['react','react-dom']) await symlink(join(root,'node_modules','@types',name),join(nodeModules,'@types',name),linkType);
   await cp(join(root, 'examples'), join(temp, 'examples'), { recursive: true, filter: path => !path.endsWith('vite.config.mjs') });
   await writeFile(join(temp, 'consumer.ts'), `import { createRecorder, getCapabilities, type RecorderOptions } from 'recstead';
 import { createRecorder as explicit } from 'recstead/core';
@@ -51,7 +65,7 @@ const options: RecorderOptions = { source: { kind: 'microphone' }, maxBytes: 102
 const recorder = createRecorder(options);
 void [getCapabilities, explicit, useRecorder, useRecorderSession, useRecordingUrl, recorder];\n`);
   await writeFile(join(temp, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2022', module: 'NodeNext', moduleResolution: 'NodeNext', jsx: 'react-jsx', lib: ['ES2022', 'DOM', 'DOM.Iterable'], strict: true, noEmit: true, allowJs: true, skipLibCheck: false }, include: ['consumer.ts','examples/**/*.ts','examples/**/*.tsx'] }));
-  execFileSync(process.execPath, [join(root, 'node_modules/typescript/bin/tsc'), '-p', join(temp, 'tsconfig.json')], { stdio: 'inherit' });
+  execFileSync(process.execPath, [join(root, 'node_modules/typescript-7/bin/tsc'), '-p', join(temp, 'tsconfig.json')], { stdio: 'inherit' });
   await build({ configFile: false, root: join(temp, 'examples'), logLevel: 'warn', build: { outDir: join(temp, 'built-examples'), emptyOutDir: true, rolldownOptions: { input: { vanilla: join(temp,'examples/vanilla/index.html'), react: join(temp,'examples/react/index.html'), synthetic: join(temp,'examples/synthetic/index.html') } } } });
   // Every relative Markdown link in the delivered documentation must resolve.
   const packageRoot = join(nodeModules, 'recstead');
@@ -66,14 +80,17 @@ void [getCapabilities, explicit, useRecorder, useRecorderSession, useRecordingUr
   }
   const reactEntry = await readFile(join(nodeModules, 'recstead/dist/react.js'), 'utf8');
   assert(/^['"]use client['"];/.test(reactEntry), 'React entry must retain use client directive');
+  assert(reactEntry.includes('from "./index.js"') && !reactEntry.includes('getUserMedia'), 'React entry must import the core instead of bundling a copy');
   for (const name of ['index.js.map','react.js.map']) {
     /** @type {{ sources: string[] }} */
     const map = JSON.parse(await readFile(join(nodeModules,'recstead/dist',name),'utf8'));
     assert(map.sources.every(source => !source.startsWith('/') && !source.includes('.private')), 'Source maps must use public relative source paths');
   }
-  const tarballSha256 = createHash('sha256').update(await readFile(resolve('.artifacts', packed.filename))).digest('hex');
-  await writeFile('.artifacts/package-check.json', JSON.stringify({ version: packed.version, filename: packed.filename, integrity: packed.integrity, tarballSha256, files: packed.files.map(file=>file.path), coreWithoutReact: true, browserGlobalsForbiddenOnImportAndConstruction: true, typesAndExampleSources: true, installedTarballExampleBuilds: ['vanilla','react','synthetic'], reactClientDirective: true }, null, 2)+'\n');
-  console.log(`Packed ${packed.filename}: ${packed.files.length} allowed files; isolated core, types, and sample apps passed.`);
+  record = { version: packed.version, filename: packed.filename, integrity: packed.integrity, tarballSha256, files: packed.files.map(file=>file.path), coreWithoutReact: true, browserGlobalsForbiddenOnImportAndConstruction: true, typesAndExampleSources: true, installedTarballExampleBuilds: ['vanilla','react','synthetic'], reactClientDirective: true, reactSharesCore: true, commonJsRequire: true };
 } finally {
-  await rm(temp, { recursive: true, force: true });
+  await rm(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 }
+// Written last, so a run that fails anywhere, including in its cleanup, leaves no record.
+assert(record);
+await writeFile('.artifacts/package-check.json', JSON.stringify(record, null, 2)+'\n');
+console.log(`Packed ${packed.filename}: ${packed.files.length} allowed files; isolated core, types, and sample apps passed.`);

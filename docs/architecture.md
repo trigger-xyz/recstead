@@ -51,10 +51,10 @@ The owned hook binds stable actions to the currently mounted controller. Effect 
 
 The subscription hook leaves controller ownership with the application. This lets an application keep a controller above a route while a view mounts or unmounts. It does not allow borrowed media tracks.
 
-Core imports have no browser side effects and do not import React. Browser APIs are read when an operation needs them. The React entry has its own client directive and external React peer dependency.
+Core imports have no browser side effects and do not import React. Browser APIs are read when an operation needs them. The React entry has its own client directive, an external React peer dependency, and imports the built core entry instead of carrying a second copy.
 
 ## Boundaries
 
-The candidate handles foreground microphone recordings. Screen and camera capture, externally supplied streams, live uploads, persistent chunk storage, recovery after page loss, transcoding and device switching during capture are outside this implementation.
+Recstead handles foreground microphone recordings. Screen and camera capture, externally supplied streams, live uploads, persistent chunk storage, recovery after page loss, transcoding and device switching during capture are outside this implementation.
 
 Browser suspension can delay events and timers. Payload limits do not establish a process-memory ceiling. A native API support result does not establish permission, hardware availability, codec interoperability or tested browser support. See [testing](testing.md) for those distinctions.

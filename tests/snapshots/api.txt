@@ -1,0 +1,166 @@
+recstead, recstead/core: createRecorder, getCapabilities, isRecorderFailure
+recstead/react: useRecorder, useRecorderSession, useRecordingUrl
+
+export declare function createRecorder(defaults?: RecorderOptions): Recorder;
+export declare function getCapabilities(mimeTypes?: readonly string[]): Capabilities;
+export declare function isRecorderFailure(value: unknown): value is RecorderFailure;
+
+// index.d.ts
+export * from './core/index.js';
+
+// core/index.d.ts
+export { createRecorder } from './controller.js';
+export { getCapabilities } from './platform.js';
+export { isRecorderFailure } from './errors.js';
+export type * from './types.js';
+
+// core/types.d.ts
+export type RecorderStatus = 'idle' | 'acquiring' | 'initializing' | 'recording' | 'paused' | 'stopping' | 'finalizing' | 'ready' | 'failed' | 'disposed';
+export type RecorderSource = {
+    kind: 'microphone';
+    constraints?: MediaTrackConstraints | undefined;
+};
+/**
+ * An explicit `undefined` keeps the default, so every option also accepts it.
+ * That keeps `{ maxBytes: maybeLimit }` valid under `exactOptionalPropertyTypes`.
+ */
+export interface RecorderOptions {
+    source?: RecorderSource | undefined;
+    mime?: {
+        candidates: readonly string[];
+        fallback: 'browser' | 'error';
+    } | undefined;
+    audioBitsPerSecond?: number | undefined;
+    maxBytes?: number | undefined;
+    maxActiveMs?: number | undefined;
+    initializationTimeoutMs?: number | undefined;
+    finalizationTimeoutMs?: number | undefined;
+}
+export interface SessionInfo {
+    readonly sessionId: string;
+    readonly startedAt: number;
+    readonly requestedMimeType: string | null;
+    readonly recorderMimeType: string;
+}
+export type StopReason = 'user' | 'duration-limit' | 'source-ended' | 'byte-limit' | 'recorder-error' | 'finalization-timeout';
+export type WarningCode = 'track-muted' | 'track-unmuted' | 'track-disabled' | 'page-hidden' | 'mime-unknown' | 'mime-disagreement';
+export interface RecordingWarning {
+    readonly code: WarningCode;
+    readonly atActiveMs: number;
+}
+export interface RecordingResult {
+    readonly sessionId: string;
+    readonly blob: Blob;
+    readonly bytes: number;
+    readonly receivedBytes: number;
+    readonly mimeType: string;
+    readonly mimeSource: 'chunk' | 'recorder' | 'unknown';
+    readonly recorderMimeType: string;
+    readonly completion: 'complete' | 'partial';
+    readonly reason: StopReason;
+    readonly activeMs: number;
+    readonly wallMs: number;
+    readonly warnings: readonly RecordingWarning[];
+}
+export type RecorderErrorCode = 'UNSUPPORTED_ENVIRONMENT' | 'INSECURE_CONTEXT' | 'PERMISSION_DENIED' | 'DEVICE_NOT_FOUND' | 'DEVICE_UNAVAILABLE' | 'CONSTRAINTS_UNSATISFIED' | 'UNSUPPORTED_FORMAT' | 'INVALID_SOURCE' | 'SOURCE_ENDED' | 'SOURCE_CHANGED' | 'RECORDING_FAILED' | 'INITIALIZATION_TIMEOUT' | 'FINALIZATION_TIMEOUT' | 'BUFFER_LIMIT' | 'EMPTY_OUTPUT' | 'MIME_MISMATCH' | 'BUSY' | 'INVALID_STATE' | 'INVALID_OPTIONS' | 'NOT_READY' | 'CANCELLED' | 'ACQUISITION_PENDING' | 'DISPOSED';
+export interface RecorderFailure extends Error {
+    readonly name: 'RecorderFailure';
+    readonly code: RecorderErrorCode;
+    readonly phase: 'capability' | 'acquire' | 'initialize' | 'record' | 'finalize' | 'command';
+    readonly sessionId?: string;
+    readonly nativeName?: string;
+    readonly cause?: unknown;
+    readonly partial?: RecordingResult;
+}
+export interface RecorderSnapshot {
+    readonly status: RecorderStatus;
+    readonly sessionId: string | null;
+    readonly result: RecordingResult | null;
+    readonly error: RecorderFailure | null;
+    readonly permissionPending: boolean;
+    readonly trackMuted: boolean;
+    readonly timing: {
+        readonly activeMs: number;
+        readonly activeSince: number | null;
+        readonly startedAt: number | null;
+    };
+}
+export type RecorderEvent = {
+    readonly type: 'state';
+    readonly snapshot: RecorderSnapshot;
+} | {
+    readonly type: 'result';
+    readonly result: RecordingResult;
+} | {
+    readonly type: 'error';
+    readonly error: RecorderFailure;
+} | {
+    readonly type: 'warning';
+    readonly warning: RecordingWarning;
+};
+export interface Recorder {
+    start(options?: RecorderOptions): Promise<SessionInfo>;
+    stop(): Promise<RecordingResult | null>;
+    pause(): Promise<void>;
+    resume(): Promise<void>;
+    cancel(): Promise<void>;
+    reset(): Promise<void>;
+    dispose(): Promise<void>;
+    getSnapshot(): RecorderSnapshot;
+    subscribe(listener: () => void): () => void;
+    onEvent(listener: (event: RecorderEvent) => void): () => void;
+}
+export interface Capabilities {
+    readonly environment: 'browser' | 'server';
+    readonly secureContext: boolean | null;
+    readonly mediaRecorder: boolean;
+    readonly microphone: boolean;
+    readonly mimeSupport: Readonly<Record<string, boolean | null>>;
+}
+
+// react.d.ts
+import { type Recorder, type RecorderEvent, type RecorderOptions, type RecorderSnapshot, type RecordingResult } from './core/index.js';
+export interface RecorderCallbacks {
+    onEvent?: ((event: RecorderEvent) => void) | undefined;
+}
+export type RecorderView = RecorderSnapshot & Pick<Recorder, 'start' | 'stop' | 'pause' | 'resume' | 'cancel' | 'reset'>;
+/** Own a microphone recorder for this mounted hook lifetime. Unmount discards it. */
+export declare function useRecorder(options?: RecorderOptions, callbacks?: RecorderCallbacks): RecorderView;
+/** Observe a caller-owned controller. Detaching never stops or disposes it. */
+export declare function useRecorderSession(recorder: Recorder, callbacks?: RecorderCallbacks): RecorderView;
+/** Create an object URL for this result and revoke only that URL during cleanup. */
+export declare function useRecordingUrl(result: RecordingResult | null): string | null;
+
+// package.json
+{
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./core": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "default": "./dist/react.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22.12"
+  },
+  "peerDependencies": {
+    "react": "^18.3.1 || ^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  }
+}

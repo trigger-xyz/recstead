@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act, StrictMode, Suspense, useEffect } from 'react';
-import { createRoot } from 'react-dom/client';
+import { createRoot, hydrateRoot } from 'react-dom/client';
 import { renderToString } from 'react-dom/server';
 import { JSDOM } from 'jsdom';
 import { useRecorder, useRecorderSession, useRecordingUrl } from '../dist/react.js';
@@ -118,7 +118,8 @@ function borrowedRecorder() {
   };
 }
 
-test('server rendering is idle and does not acquire a microphone or make object URLs', () => {
+test('server rendering is idle and does not acquire a microphone or make object URLs', t => {
+  const urls = mockObjectUrls(t);
   const borrowed = borrowedRecorder();
   borrowed.setStatus('recording');
   function View() {
@@ -130,6 +131,32 @@ test('server rendering is idle and does not acquire a microphone or make object 
   assert.equal(renderToString(React.createElement(View)), '<p>idle/idle/null</p>');
   assert.equal(borrowed.listeners.size, 0);
   assert.equal(borrowed.events.size, 0);
+  assert.equal(urls.created.length, 0, 'a URL made during a server render could never be revoked');
+});
+
+test('hydration starts from the idle markup and catches up with a controller that is already recording', async t => {
+  const borrowed = borrowedRecorder();
+  borrowed.setStatus('recording');
+  function View() {
+    const owned = useRecorder();
+    const observed = useRecorderSession(borrowed);
+    return React.createElement('p', null, `${owned.status}/${observed.status}`);
+  }
+  const html = renderToString(React.createElement(View));
+  assert.equal(html, '<p>idle/idle</p>');
+  installBrowser(t);
+  const container = document.createElement('div');
+  container.innerHTML = html;
+  document.body.append(container);
+  const problems = [];
+  t.mock.method(console, 'error', (...args) => { problems.push(args); });
+  let root;
+  await act(async () => { root = hydrateRoot(container, React.createElement(View), { onRecoverableError: error => problems.push(error) }); });
+  assert.equal(container.textContent, 'idle/recording', 'no further controller event is needed to show the live state');
+  assert.deepEqual(problems, [], 'the first client render matches the server markup');
+  assert.equal(borrowed.listeners.size, 1);
+  await act(async () => root.unmount());
+  assert.equal(borrowed.listeners.size, 0);
 });
 
 test('StrictMode replays effects with a usable fresh controller and unmount releases capture', async t => {
@@ -186,11 +213,11 @@ test('unmount rejects an outstanding start and releases a stream granted later',
   function View() { view = useRecorder(undefined, { onEvent: event => events.push(event) }); return null; }
   await act(async () => browser.root.render(React.createElement(View)));
   let outcome;
-  await act(async () => { outcome = view.start().catch(error => error); });
+  await act(async () => { outcome = assert.rejects(view.start(), { name: 'RecorderFailure', code: 'CANCELLED' }); });
   assert.equal(view.status, 'acquiring');
   await browser.unmount();
   const eventCountAtUnmount = events.length;
-  assert.equal((await outcome).code, 'CANCELLED');
+  await outcome;
   await act(async () => { browser.pendingPermissions[0](); });
   assert.equal(browser.tracks[0].stops, 1);
   assert.equal(browser.nativeRecorders.length, 0);
@@ -217,9 +244,13 @@ test('new committed options affect the next start and callback changes do not re
   assert.equal(firstEvents.length, firstCount);
   assert.ok(secondEvents.length > 0);
   await act(async () => { await view.cancel(); });
+  // A defined override applies to that recording only; an undefined one keeps the committed default.
+  await act(async () => { await view.start({ source: { kind: 'microphone', constraints: { deviceId: { exact: 'once' } } } }); });
+  await act(async () => { await view.cancel(); });
   await act(async () => { await view.start({ source: undefined }); });
-  assert.equal(browser.requests.length, 2);
-  assert.deepEqual(browser.requests.map(request => request.audio.deviceId.exact), ['first', 'second']);
+  await act(async () => { await view.cancel(); });
+  await act(async () => { await view.start(); });
+  assert.deepEqual(browser.requests.map(request => request.audio.deviceId.exact), ['first', 'once', 'second', 'second']);
 });
 
 test('a suspended uncommitted render cannot install new options or callbacks', async t => {
@@ -243,6 +274,39 @@ test('a suspended uncommitted render cannot install new options or callbacks', a
   assert.equal(browser.requests[0].audio.deviceId.exact, 'committed');
   assert.ok(committedEvents.length > 0);
   assert.equal(abandonedEvents.length, 0);
+});
+
+test('Suspense hiding keeps an owned recording, its session and its microphone', async t => {
+  const browser = installBrowser(t);
+  let view;
+  const pending = new Promise(() => {});
+  function View({ suspend }) {
+    const current = useRecorder();
+    if (suspend) throw pending;
+    view = current;
+    return React.createElement('p', null, view.status);
+  }
+  const render = suspend => React.createElement(Suspense, { fallback: 'Loading' }, React.createElement(View, { suspend }));
+  await act(async () => browser.root.render(render(false)));
+  await act(async () => { await view.start(); });
+  const { sessionId, stop } = view;
+  assert.equal(view.status, 'recording');
+  await act(async () => browser.root.render(render(true)));
+  const container = document.getElementById('root');
+  assert.deepEqual([container.textContent, container.querySelector('p').style.display], ['recordingLoading', 'none'], 'this test must actually hide the recorder');
+  assert.equal(browser.tracks[0].stops, 0, 'hiding is not unmounting');
+  assert.equal(browser.nativeRecorders[0].state, 'recording');
+  await act(async () => browser.root.render(render(false)));
+  assert.deepEqual([view.status, view.sessionId], ['recording', sessionId]);
+  assert.equal(view.stop, stop);
+  assert.equal(browser.requests.length, 1);
+  let result;
+  await act(async () => { result = await view.stop(); });
+  assert.equal(result.sessionId, sessionId);
+  assert.equal(await result.blob.text(), 'test recording');
+  await act(async () => { await view.start(); });
+  await browser.unmount();
+  assert.deepEqual(browser.tracks.map(track => track.stops), [1, 1], 'unmounting still releases the microphone');
 });
 
 test('borrowed controller subscriptions and actions follow replacement without disposal', async t => {
@@ -359,17 +423,28 @@ test('each URL hook revokes its own URL on result replacement and unmount', asyn
   const first = { blob: new Blob(['first']) };
   const second = { blob: new Blob(['second']) };
   let values;
-  function View({ result }) { values = [useRecordingUrl(result), useRecordingUrl(first)]; return null; }
+  const commits = [];
+  function View({ result }) {
+    values = [useRecordingUrl(result), useRecordingUrl(first)];
+    const [url] = values;
+    // What the application could put on screen in each commit.
+    React.useLayoutEffect(() => { commits.push({ result, url }); });
+    return null;
+  }
+  const shown = result => [...new Set(commits.filter(commit => commit.result === result).map(commit => commit.url))];
   await act(async () => browser.root.render(React.createElement(View, { result: first })));
   assert.deepEqual(values, ['blob:owned-1', 'blob:owned-2']);
   await act(async () => browser.root.render(React.createElement(View, { result: second })));
   assert.deepEqual(values, ['blob:owned-3', 'blob:owned-2']);
   assert.deepEqual(urls.revoked, ['blob:owned-1']);
+  assert.deepEqual(shown(second), [null, 'blob:owned-3'], 'a new result never shows the URL of the one it replaced');
   await act(async () => browser.root.render(React.createElement(View, { result: null })));
   assert.deepEqual(values, [null, 'blob:owned-2']);
   assert.deepEqual(urls.revoked, ['blob:owned-1', 'blob:owned-3']);
+  assert.deepEqual(shown(null), [null]);
   await browser.unmount();
   assert.deepEqual(urls.revoked, ['blob:owned-1', 'blob:owned-3', 'blob:owned-2']);
+  assert.deepEqual(urls.created.map(entry => entry.blob), [first.blob, first.blob, second.blob], 'each URL is made from its own recording');
 });
 
 test('StrictMode URL replay revokes the first effect URL and retains only the live one', async t => {

@@ -9,14 +9,29 @@ export interface Note {
   activeMs: number;
 }
 
+interface StoredNote {
+  id: string;
+  title: string;
+  createdAt: number;
+  bytes: ArrayBuffer;
+  mimeType: string;
+  activeMs: number;
+}
+
+// Notes are stored as bytes. WebKit rejects Blob values in IndexedDB for
+// private and other ephemeral sessions; ArrayBuffer values work everywhere.
 function readNote(value: unknown): Note {
   if (typeof value !== 'object' || value === null) throw new Error('A saved note could not be read.');
   const note = value as Record<string, unknown>;
   if (typeof note.id !== 'string' || typeof note.title !== 'string' || typeof note.createdAt !== 'number' ||
-      !(note.blob instanceof Blob) || typeof note.mimeType !== 'string' || typeof note.activeMs !== 'number') {
+      typeof note.mimeType !== 'string' || typeof note.activeMs !== 'number') {
     throw new Error('A saved note could not be read.');
   }
-  return { id: note.id, title: note.title, createdAt: note.createdAt, blob: note.blob,
+  // Records written before 1.0.0-beta.0 hold a Blob instead of bytes.
+  const blob = note.bytes instanceof ArrayBuffer ? new Blob([note.bytes], { type: note.mimeType })
+    : note.blob instanceof Blob ? note.blob : null;
+  if (!blob) throw new Error('A saved note could not be read.');
+  return { id: note.id, title: note.title, createdAt: note.createdAt, blob,
     mimeType: note.mimeType, activeMs: note.activeMs };
 }
 
@@ -96,6 +111,12 @@ export class NoteStorage {
         note.blob.size === 0 || note.blob.size > MAX_RECORDING_BYTES) {
       return Promise.reject(new Error('Give this complete recording a title of up to 80 characters.'));
     }
+    // Read the bytes first: an IndexedDB transaction cannot stay open across this await.
+    return note.blob.arrayBuffer().then(bytes => this.put(note, bytes, simulateFailure),
+      () => Promise.reject(new Error('This recording could not be read. Download the draft or record again.')));
+  }
+
+  private put(note: Note, bytes: ArrayBuffer, simulateFailure: boolean): Promise<void> {
     // Count, size check and put share one readwrite transaction across tabs.
     return this.transaction('readwrite', (store, done, fail) => {
       const request = store.getAll();
@@ -107,7 +128,9 @@ export class NoteStorage {
         if (other.length >= this.limits.count || other.reduce((sum, value) => sum + value.blob.size, note.blob.size) > this.limits.bytes) {
           fail(new Error('Your note collection is full. Delete saved notes or download this draft.')); return;
         }
-        store.put({ ...note, title: note.title.trim() });
+        const stored: StoredNote = { id: note.id, title: note.title.trim(), createdAt: note.createdAt,
+          bytes, mimeType: note.mimeType, activeMs: note.activeMs };
+        store.put(stored);
         if (simulateFailure) { fail(new Error('Simulated storage failure. Your draft is still available.')); return; }
         done(undefined);
       };

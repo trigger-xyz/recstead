@@ -36,7 +36,7 @@ export function stream(...tracks) {
   };
 }
 export function environment(t, config = {}) {
-  const requests = [], natives = [], owned = [], tracks = [], reports = [];
+  const requests = [], natives = [], owned = [], tracks = [], reports = [], constructions = [];
   const timers = new Map();
   let time = 0, timerId = 0;
   const document = new ObservableTarget();
@@ -48,22 +48,31 @@ export function environment(t, config = {}) {
     commands = [];
     constructor(input, options) {
       super();
+      // Every attempt counts, including one that throws.
+      constructions.push(options);
       if (config.constructorError) throw config.constructorError;
       this.input = input; this.options = options; natives.push(this);
+    }
+    // Like the browsers' recorder, every command but start() throws while inactive,
+    // and start() throws unless inactive. A controller must never rely on leniency.
+    require(active) {
+      if ((this.state !== 'inactive') !== active) throw new DOMException(`The recorder is ${this.state}.`, 'InvalidStateError');
     }
     start(slice) {
       this.commands.push(['start', slice]);
       if (config.startError) throw config.startError;
+      this.require(false);
       this.state = 'recording';
     }
     stop() {
       this.commands.push(['stop']);
       if (config.stopError) throw config.stopError;
+      this.require(true);
       this.state = 'inactive';
       if (config.resetMimeOnStop) this.mimeType = '';
     }
-    pause() { this.commands.push(['pause']); this.state = 'paused'; }
-    resume() { this.commands.push(['resume']); this.state = 'recording'; }
+    pause() { this.commands.push(['pause']); this.require(true); this.state = 'paused'; }
+    resume() { this.commands.push(['resume']); this.require(true); this.state = 'recording'; }
   }
   const globals = {
     window: {}, document,
@@ -96,7 +105,8 @@ export function environment(t, config = {}) {
     tracks.push(...input.getTracks()); requests[index].resolve(input); await flush(); return input;
   }
   return {
-    requests, natives, tracks, reports, timers, document, NativeRecorder, event, grant,
+    requests, natives, tracks, reports, timers, constructions, document, NativeRecorder, event, grant,
+    now: () => time,
     create(options) { const recorder = createRecorder(options); owned.push(recorder); return recorder; },
     async begin(recorder, options) {
       const promise = recorder.start(options);
