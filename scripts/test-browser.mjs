@@ -11,7 +11,7 @@ import { runNpm } from './lib/npm.mjs';
 
 // Usage: test-browser.mjs [--published[=version]] [--tarball=path] [playwright arguments]
 // RECSTEAD_REQUIRE_ENGINES=chromium,firefox,webkit fails the run when a listed engine cannot launch.
-const PUBLISHED_BASELINE = '0.1.0-alpha.1';
+const PUBLISHED_BASELINE = '1.0.0-beta.0';
 const ENGINES = /** @type {const} */ ({ chromium, firefox, webkit });
 const args = process.argv.slice(2);
 const publishedArg = args.find(argument => argument === '--published' || argument.startsWith('--published='));

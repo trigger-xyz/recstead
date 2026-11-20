@@ -82,7 +82,7 @@ npm run test:browser:container
 
 This runs the three Linux engines in Playwright's container image against the tarball already packed on your machine. It needs Docker. Use it when an engine does not launch natively.
 
-`npm run test:browser:published` runs the same workflows against the published `0.1.0-alpha.1` package, pinned by version.
+`npm run test:browser:published` runs the same workflows against the published `1.0.0-beta.0` package, pinned by version.
 
 Reports, traces and screenshots are written to `.artifacts/`, which Git ignores. Each run records the engine versions, the outcome counts and the SHA-256 of the tarball it tested.
 

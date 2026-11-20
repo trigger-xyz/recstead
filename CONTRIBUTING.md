@@ -24,7 +24,7 @@ npm run check:consumers
 
 `test:browser` installs the candidate tarball in a temporary consumer and runs the application workflows in every engine that launches on your machine. An engine that cannot launch is reported as unavailable, not as passing. `npm run test:browser:container` runs the three Linux engines in Playwright's container image and needs Docker. `check:consumers` compiles a type-only project with the oldest and newest supported TypeScript and exercises a Next.js production build.
 
-`npm run test:browser:published` checks the same examples against the pinned `0.1.0-alpha.1` package. Browser reports and generated-audio traces stay under ignored `.artifacts/`. Do not collect traces from personal recordings.
+`npm run test:browser:published` checks the same examples against the pinned `1.0.0-beta.0` package. Browser reports and generated-audio traces stay under ignored `.artifacts/`. Do not collect traces from personal recordings.
 
 `npm run check:all` combines the repository, browser and consumer checks. Publishing runs it first, so install the browser engines before you publish. `npm run release:prepare` also requires a passing native-recording result for Chromium, Firefox and WebKit, each for the exact tarball being released.
 
